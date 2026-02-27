@@ -1,0 +1,1955 @@
+local Players      = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local UIS          = game:GetService("UserInputService")
+local HttpService  = game:GetService("HttpService")
+local Lighting     = game:GetService("Lighting")
+local LocalPlayer  = Players.LocalPlayer
+
+local NexusUI          = {}
+NexusUI.__index        = NexusUI
+NexusUI.Flags          = {}
+NexusUI._configCache   = {}
+NexusUI._profile       = "Default"
+NexusUI._themeUpdaters = {}
+NexusUI._currentTheme  = nil
+
+local function _filePath(p) return "NexusUI_"..(p or NexusUI._profile)..".json" end
+local _statsFile = "NexusUI_Stats.json"
+
+local function _loadStats()
+    local ok, raw = pcall(readfile, _statsFile)
+    if not ok or not raw or raw == "" then return {} end
+    local ok2, d = pcall(function() return HttpService:JSONDecode(raw) end)
+    return ok2 and d or {}
+end
+
+local function _saveStats(d)
+    pcall(writefile, _statsFile, HttpService:JSONEncode(d))
+end
+
+local _statsSession = tick()
+local _statsActive  = true
+
+NexusUI.Stats = (function()
+    local d = _loadStats()
+    d.executions = (d.executions or 0) + 1
+    d.first_run  = d.first_run or os.time()
+    d.last_run   = os.time()
+    d.total_time = d.total_time or 0
+    _saveStats(d)
+    task.spawn(function()
+        while _statsActive and task.wait(30) do
+            local now = _loadStats()
+            now.total_time = (now.total_time or 0) + 30
+            _saveStats(now)
+        end
+    end)
+    return d
+end)()
+
+function NexusUI:SaveConfig(profile)
+    profile = profile or self._profile
+    local data = {}
+    for flag, obj in pairs(self.Flags) do
+        local v = obj:Get()
+        if typeof(v) == "Color3" then
+            data[flag] = { __color3 = true, r = v.R, g = v.G, b = v.B }
+        else
+            data[flag] = v
+        end
+    end
+    self._configCache[profile] = data
+    local ok, err = pcall(writefile, _filePath(profile), HttpService:JSONEncode(data))
+    if not ok then warn("NexusUI: SaveConfig -", err) end
+end
+
+function NexusUI:LoadConfig(profile)
+    profile = profile or self._profile
+    if self._configCache[profile] then return self._configCache[profile] end
+    local ok, raw = pcall(readfile, _filePath(profile))
+    if not ok or not raw or raw == "" then self._configCache[profile] = {}; return {} end
+    local ok2, data = pcall(function() return HttpService:JSONDecode(raw) end)
+    if not ok2 then self._configCache[profile] = {}; return {} end
+    for k, v in pairs(data) do
+        if type(v) == "table" and v.__color3 then
+            data[k] = Color3.new(v.r, v.g, v.b)
+        end
+    end
+    self._configCache[profile] = data
+    return data
+end
+
+function NexusUI:SetProfile(p) self._profile = p; self:LoadConfig(p) end
+function NexusUI:ApplyProfile(profile)
+    local data = self:LoadConfig(profile)
+    for flag, val in pairs(data) do
+        if self.Flags[flag] then pcall(function() self.Flags[flag]:Set(val) end) end
+    end
+end
+function NexusUI:LoadConfiguration() self:ApplyProfile(self._profile) end
+function NexusUI:SetVisibility(s)
+    if self._mainFrame then self._mainFrame.Visible = s end
+    self._visible = s
+end
+function NexusUI:IsVisible() return self._visible ~= false end
+function NexusUI:Destroy()
+    _statsActive = false
+    if self._screenGui then self._screenGui:Destroy() end
+end
+
+local _saveTimers = {}
+local function _autoSave(flag, val)
+    local p = NexusUI._profile
+    if not NexusUI._configCache[p] then NexusUI._configCache[p] = {} end
+    if typeof(val) == "Color3" then
+        NexusUI._configCache[p][flag] = { __color3 = true, r = val.R, g = val.G, b = val.B }
+    else
+        NexusUI._configCache[p][flag] = val
+    end
+    if _saveTimers[p] then task.cancel(_saveTimers[p]) end
+    _saveTimers[p] = task.delay(0.5, function()
+        pcall(writefile, _filePath(p), HttpService:JSONEncode(NexusUI._configCache[p]))
+        _saveTimers[p] = nil
+    end)
+end
+
+local function _saved(flag, fallback)
+    if not flag then return fallback end
+    local data = NexusUI._configCache[NexusUI._profile]
+    if data and data[flag] ~= nil then return data[flag] end
+    return fallback
+end
+
+local function _genFlag(cfg)
+    if cfg.Flag then return cfg.Flag end
+    local t = (cfg.Title or cfg.Name or "")
+    return t ~= "" and t:gsub("%s+","_"):gsub("[^%w_]",""):lower() or nil
+end
+
+local function _randomStr(n)
+    local c = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    local s = ""
+    for i = 1, n do local r = math.random(1,#c); s = s..c:sub(r,r) end
+    return s
+end
+
+local Themes = {
+    Dark = {
+        Background  = Color3.fromRGB(22,22,26),
+        Sidebar     = Color3.fromRGB(16,16,20),
+        Panel       = Color3.fromRGB(30,30,36),
+        PanelAlt    = Color3.fromRGB(36,36,44),
+        Accent      = Color3.fromRGB(100,180,255),
+        AccentAlt   = Color3.fromRGB(220,100,100),
+        TextPrimary = Color3.fromRGB(238,238,244),
+        TextSecondary=Color3.fromRGB(120,120,138),
+        Divider     = Color3.fromRGB(42,42,52),
+        ToggleOn    = Color3.fromRGB(72,196,112),
+        ToggleOff   = Color3.fromRGB(54,54,68),
+        NotifyBg    = Color3.fromRGB(28,76,158),
+        BadgeBg     = Color3.fromRGB(42,42,52),
+        BadgeText   = Color3.fromRGB(120,120,138),
+    },
+    Midnight = {
+        Background  = Color3.fromRGB(10,10,18),   Sidebar     = Color3.fromRGB(8,8,14),
+        Panel       = Color3.fromRGB(18,18,30),   PanelAlt    = Color3.fromRGB(24,24,40),
+        Accent      = Color3.fromRGB(140,100,255), AccentAlt  = Color3.fromRGB(255,80,140),
+        TextPrimary = Color3.fromRGB(230,225,255), TextSecondary=Color3.fromRGB(120,115,150),
+        Divider     = Color3.fromRGB(30,30,50),   ToggleOn    = Color3.fromRGB(140,100,255),
+        ToggleOff   = Color3.fromRGB(40,40,60),   NotifyBg    = Color3.fromRGB(60,30,120),
+        BadgeBg     = Color3.fromRGB(30,30,50),   BadgeText   = Color3.fromRGB(120,115,150),
+    },
+    Light = {
+        Background  = Color3.fromRGB(238,238,246), Sidebar    = Color3.fromRGB(222,222,232),
+        Panel       = Color3.fromRGB(255,255,255), PanelAlt   = Color3.fromRGB(246,246,252),
+        Accent      = Color3.fromRGB(56,126,220),  AccentAlt  = Color3.fromRGB(200,60,80),
+        TextPrimary = Color3.fromRGB(20,20,30),    TextSecondary=Color3.fromRGB(98,98,118),
+        Divider     = Color3.fromRGB(208,208,224), ToggleOn   = Color3.fromRGB(48,176,96),
+        ToggleOff   = Color3.fromRGB(188,188,204), NotifyBg   = Color3.fromRGB(38,98,200),
+        BadgeBg     = Color3.fromRGB(208,208,224), BadgeText  = Color3.fromRGB(98,98,118),
+    },
+    Aqua = {
+        Background  = Color3.fromRGB(12,22,30),   Sidebar    = Color3.fromRGB(8,16,24),
+        Panel       = Color3.fromRGB(18,32,44),   PanelAlt   = Color3.fromRGB(22,40,54),
+        Accent      = Color3.fromRGB(0,200,200),  AccentAlt  = Color3.fromRGB(0,255,180),
+        TextPrimary = Color3.fromRGB(220,245,255),TextSecondary=Color3.fromRGB(100,160,185),
+        Divider     = Color3.fromRGB(20,50,70),   ToggleOn   = Color3.fromRGB(0,200,200),
+        ToggleOff   = Color3.fromRGB(25,50,65),   NotifyBg   = Color3.fromRGB(0,80,100),
+        BadgeBg     = Color3.fromRGB(20,50,70),   BadgeText  = Color3.fromRGB(100,160,185),
+    },
+    Rose = {
+        Background  = Color3.fromRGB(20,12,16),   Sidebar    = Color3.fromRGB(14,8,12),
+        Panel       = Color3.fromRGB(30,18,24),   PanelAlt   = Color3.fromRGB(38,22,30),
+        Accent      = Color3.fromRGB(255,80,140), AccentAlt  = Color3.fromRGB(255,150,80),
+        TextPrimary = Color3.fromRGB(255,230,240),TextSecondary=Color3.fromRGB(160,110,130),
+        Divider     = Color3.fromRGB(55,28,40),   ToggleOn   = Color3.fromRGB(255,80,140),
+        ToggleOff   = Color3.fromRGB(55,28,40),   NotifyBg   = Color3.fromRGB(120,20,60),
+        BadgeBg     = Color3.fromRGB(55,28,40),   BadgeText  = Color3.fromRGB(160,110,130),
+    },
+    Neon = {
+        Background  = Color3.fromRGB(8,8,10),     Sidebar    = Color3.fromRGB(6,6,8),
+        Panel       = Color3.fromRGB(14,14,18),   PanelAlt   = Color3.fromRGB(18,18,24),
+        Accent      = Color3.fromRGB(0,255,128),  AccentAlt  = Color3.fromRGB(255,0,180),
+        TextPrimary = Color3.fromRGB(200,255,220),TextSecondary=Color3.fromRGB(80,160,100),
+        Divider     = Color3.fromRGB(20,40,28),   ToggleOn   = Color3.fromRGB(0,255,128),
+        ToggleOff   = Color3.fromRGB(20,40,28),   NotifyBg   = Color3.fromRGB(0,80,40),
+        BadgeBg     = Color3.fromRGB(20,40,28),   BadgeText  = Color3.fromRGB(80,160,100),
+    },
+    Ocean = {
+        Background  = Color3.fromRGB(8,18,28),    Sidebar    = Color3.fromRGB(6,14,22),
+        Panel       = Color3.fromRGB(12,28,44),   PanelAlt   = Color3.fromRGB(16,34,54),
+        Accent      = Color3.fromRGB(30,160,255), AccentAlt  = Color3.fromRGB(0,220,180),
+        TextPrimary = Color3.fromRGB(210,235,255),TextSecondary=Color3.fromRGB(80,130,170),
+        Divider     = Color3.fromRGB(18,45,70),   ToggleOn   = Color3.fromRGB(30,160,255),
+        ToggleOff   = Color3.fromRGB(18,45,70),   NotifyBg   = Color3.fromRGB(10,60,110),
+        BadgeBg     = Color3.fromRGB(18,45,70),   BadgeText  = Color3.fromRGB(80,130,170),
+    },
+    Gold = {
+        Background  = Color3.fromRGB(18,14,6),    Sidebar    = Color3.fromRGB(14,10,4),
+        Panel       = Color3.fromRGB(28,22,8),    PanelAlt   = Color3.fromRGB(36,28,10),
+        Accent      = Color3.fromRGB(255,200,40), AccentAlt  = Color3.fromRGB(255,120,20),
+        TextPrimary = Color3.fromRGB(255,245,210),TextSecondary=Color3.fromRGB(160,130,60),
+        Divider     = Color3.fromRGB(55,42,12),   ToggleOn   = Color3.fromRGB(255,200,40),
+        ToggleOff   = Color3.fromRGB(50,38,10),   NotifyBg   = Color3.fromRGB(100,70,5),
+        BadgeBg     = Color3.fromRGB(55,42,12),   BadgeText  = Color3.fromRGB(160,130,60),
+    },
+    Carbon = {
+        Background  = Color3.fromRGB(16,16,16),   Sidebar    = Color3.fromRGB(12,12,12),
+        Panel       = Color3.fromRGB(24,24,24),   PanelAlt   = Color3.fromRGB(30,30,30),
+        Accent      = Color3.fromRGB(200,200,200),AccentAlt  = Color3.fromRGB(255,80,80),
+        TextPrimary = Color3.fromRGB(245,245,245),TextSecondary=Color3.fromRGB(130,130,130),
+        Divider     = Color3.fromRGB(40,40,40),   ToggleOn   = Color3.fromRGB(180,180,180),
+        ToggleOff   = Color3.fromRGB(45,45,45),   NotifyBg   = Color3.fromRGB(50,50,50),
+        BadgeBg     = Color3.fromRGB(40,40,40),   BadgeText  = Color3.fromRGB(130,130,130),
+    },
+    Crimson = {
+        Background  = Color3.fromRGB(18,8,8),     Sidebar    = Color3.fromRGB(12,6,6),
+        Panel       = Color3.fromRGB(28,12,12),   PanelAlt   = Color3.fromRGB(36,16,16),
+        Accent      = Color3.fromRGB(220,40,40),  AccentAlt  = Color3.fromRGB(255,140,40),
+        TextPrimary = Color3.fromRGB(255,225,225),TextSecondary=Color3.fromRGB(150,90,90),
+        Divider     = Color3.fromRGB(55,20,20),   ToggleOn   = Color3.fromRGB(220,40,40),
+        ToggleOff   = Color3.fromRGB(55,20,20),   NotifyBg   = Color3.fromRGB(100,10,10),
+        BadgeBg     = Color3.fromRGB(55,20,20),   BadgeText  = Color3.fromRGB(150,90,90),
+    },
+}
+NexusUI.Themes = Themes
+
+local function Tween(obj, props, dur, style, dir)
+    TweenService:Create(obj,
+        TweenInfo.new(dur or 0.22, style or Enum.EasingStyle.Exponential,
+                      dir  or Enum.EasingDirection.Out),
+        props):Play()
+end
+
+local function New(class, props, parent)
+    local obj = Instance.new(class)
+    for k,v in pairs(props or {}) do obj[k] = v end
+    if parent then obj.Parent = parent end
+    return obj
+end
+
+NexusUI.Icons = {
+    x               = "rbxassetid://111236799007301",
+    close           = "rbxassetid://111236799007301",
+    search          = "rbxassetid://115911593232813",
+    ["chevron-down"]= "rbxassetid://72161591837857",
+    chevron_down    = "rbxassetid://72161591837857",
+    check           = "rbxassetid://135312127911361",
+    user            = "rbxassetid://108305809076681",
+    info            = "rbxassetid://134056314510076",
+    alert           = "rbxassetid://133446605090895",
+    play            = "rbxassetid://74192936297290",
+    zap             = "rbxassetid://104160632005127",
+    list            = "rbxassetid://95256565427825",
+    mouse           = "rbxassetid://122599400213830",
+    minus           = "rbxassetid://133544724996193",
+    folder          = "rbxassetid://122726946854476",
+    scan            = "rbxassetid://131169130608121",
+    bot             = "rbxassetid://79844207180911",
+}
+
+local _IconFallback = {
+    home="H", settings="S", user="U", star="*", bell="!",
+    code=">_", map="@", shield="#", zap="!", eye="O",
+    lock="#", key="+", trash="X", copy="[]", download="v",
+    search="?", plus="+", minus="-", check="v", x="X",
+    layers="[]", terminal=">_", sword="X", gamepad="[]",
+    heart="<3", info="i", alert="!", chart="#", list="=",
+    grid="[]", paint="*", pin="*", cursor=">", fire="!",
+    crown="^", diamond="<>", moon="O", sun="*", close="X",
+    edit="E", flag="!", potion="!", flask="!", buy="$",
+    players="@", teams="#", settings2="*",
+}
+
+local function GetIcon(n)
+    if not n then return "*" end
+    local key = n:lower():gsub("%-","_")
+    if NexusUI.Icons[key] then return NexusUI.Icons[key] end
+    if NexusUI.Icons[n:lower()] then return NexusUI.Icons[n:lower()] end
+    return _IconFallback[key] or _IconFallback[n:lower()] or "*"
+end
+
+local function _isAssetId(s)
+    return type(s) == "string"
+        and (s:sub(1,13) == "rbxassetid://" or s:match("^%d+$"))
+end
+
+local function _makeIconEl(parent, iconName, size, pos, color, zIdx)
+    local ico = GetIcon(iconName)
+    if _isAssetId(ico) then
+        return New("ImageLabel", {
+            Size = UDim2.new(0,size,0,size), Position = pos,
+            BackgroundTransparency = 1, Image = ico,
+            ImageColor3 = color, ScaleType = Enum.ScaleType.Fit, ZIndex = zIdx,
+        }, parent)
+    else
+        return New("TextLabel", {
+            Size = UDim2.new(0,size,0,size), Position = pos,
+            BackgroundTransparency = 1, Text = ico, TextColor3 = color,
+            TextSize = math.floor(size*0.7), Font = Enum.Font.GothamBold, ZIndex = zIdx,
+        }, parent)
+    end
+end
+
+local _mouseButtonNames = {
+    [Enum.UserInputType.MouseButton1] = "MB1",
+    [Enum.UserInputType.MouseButton2] = "MB2",
+    [Enum.UserInputType.MouseButton3] = "MB3",
+}
+
+local function _makeTooltip(parent, text, theme)
+    if not text or text == "" then return end
+    local tip = New("Frame", {
+        Size = UDim2.new(0,0,0,26), AutomaticSize = Enum.AutomaticSize.X,
+        BackgroundColor3 = theme.Panel, BorderSizePixel = 0, Visible = false, ZIndex = 200,
+    }, parent.Parent or parent)
+    New("UICorner", { CornerRadius = UDim.new(0,5) }, tip)
+    New("UIStroke", { Color = theme.Accent, Thickness = 1 }, tip)
+    New("UIPadding",{ PaddingLeft = UDim.new(0,10), PaddingRight = UDim.new(0,10) }, tip)
+    New("TextLabel",{ Size = UDim2.new(0,0,1,0), AutomaticSize = Enum.AutomaticSize.X,
+        BackgroundTransparency = 1, Text = text, TextColor3 = theme.TextPrimary,
+        TextSize = 11, Font = Enum.Font.Gotham, ZIndex = 201 }, tip)
+    local IBtn = New("TextButton",{
+        Size = UDim2.new(0,18,0,18), BackgroundColor3 = theme.PanelAlt,
+        Text = "?", TextColor3 = theme.Accent, TextSize = 10, Font = Enum.Font.GothamBold,
+        ZIndex = (parent.ZIndex or 4)+2,
+    }, parent)
+    New("UICorner",{ CornerRadius = UDim.new(0.5,0) }, IBtn)
+    IBtn.MouseEnter:Connect(function()
+        local abs = IBtn.AbsolutePosition
+        local vpS = game:GetService("Workspace").CurrentCamera.ViewportSize
+        local tx = abs.X+24; if tx+160>vpS.X then tx = abs.X-164 end
+        tip.Position = UDim2.new(0,tx,0,abs.Y-4); tip.Visible = true
+    end)
+    IBtn.MouseLeave:Connect(function() tip.Visible = false end)
+    return IBtn
+end
+
+local function _makeKeySystemUI(SG, cfg, theme, onSuccess)
+    local keys = type(cfg.Key) == "table" and cfg.Key or { cfg.Key or "" }
+    local KF   = New("Frame",{ Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.new(0,0,0), BackgroundTransparency=0.4, ZIndex=200 }, SG)
+    local KBox = New("Frame",{ Size=UDim2.new(0,360,0,210), Position=UDim2.new(0.5,-180,0.5,-105), BackgroundColor3=theme.Panel, BorderSizePixel=0, ZIndex=201 }, KF)
+    New("UICorner",{ CornerRadius=UDim.new(0,12) }, KBox)
+    New("UIStroke",{ Color=theme.Accent, Thickness=1 }, KBox)
+    New("TextLabel",{ Size=UDim2.new(1,-20,0,28), Position=UDim2.new(0,10,0,16), BackgroundTransparency=1, Text=cfg.Title or "Key System", TextColor3=theme.TextPrimary, TextSize=16, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=202 }, KBox)
+    New("TextLabel",{ Size=UDim2.new(1,-20,0,18), Position=UDim2.new(0,10,0,46), BackgroundTransparency=1, Text=cfg.Subtitle or "", TextColor3=theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=202 }, KBox)
+    if cfg.Note then New("TextLabel",{ Size=UDim2.new(1,-20,0,28), Position=UDim2.new(0,10,0,68), BackgroundTransparency=1, Text=cfg.Note, TextColor3=theme.TextSecondary, TextSize=11, Font=Enum.Font.Gotham, TextWrapped=true, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=202 }, KBox) end
+    local KInput = New("TextBox",{ Size=UDim2.new(1,-20,0,32), Position=UDim2.new(0,10,0,110), BackgroundColor3=theme.Background, Text="", PlaceholderText="Enter key...", TextColor3=theme.TextPrimary, PlaceholderColor3=theme.TextSecondary, TextSize=13, Font=Enum.Font.Gotham, ZIndex=202, ClearTextOnFocus=false }, KBox)
+    New("UICorner",{ CornerRadius=UDim.new(0,7) }, KInput)
+    New("UIPadding",{ PaddingLeft=UDim.new(0,10) }, KInput)
+    local ErrL   = New("TextLabel",{ Size=UDim2.new(1,-20,0,16), Position=UDim2.new(0,10,0,148), BackgroundTransparency=1, Text="", TextColor3=theme.AccentAlt, TextSize=11, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=202 }, KBox)
+    local SubBtn = New("TextButton",{ Size=UDim2.new(1,-20,0,32), Position=UDim2.new(0,10,0,168), BackgroundColor3=theme.Accent, Text="Submit", TextColor3=Color3.new(1,1,1), TextSize=13, Font=Enum.Font.GothamBold, ZIndex=202 }, KBox)
+    New("UICorner",{ CornerRadius=UDim.new(0,7) }, SubBtn)
+    local keyFile = cfg.FileName and ("NexusUI_Key_"..cfg.FileName..".txt") or nil
+    if keyFile and cfg.SaveKey then
+        local ok, saved = pcall(readfile, keyFile)
+        if ok and saved then
+            for _, k in ipairs(keys) do if saved==k then KF:Destroy(); task.spawn(onSuccess); return end end
+        end
+    end
+    SubBtn.MouseButton1Click:Connect(function()
+        local input=KInput.Text; local valid=false
+        for _, k in ipairs(keys) do if input==k then valid=true; break end end
+        if valid then
+            if keyFile and cfg.SaveKey then pcall(writefile,keyFile,input) end
+            Tween(KBox,{ Size=UDim2.new(0,360,0,0), Position=UDim2.new(0.5,-180,0.5,0) },0.3)
+            task.wait(0.35); KF:Destroy(); task.spawn(onSuccess)
+        else
+            ErrL.Text = "Invalid key. Please try again."
+            for _, dx in ipairs({-5,5,-4,4,-2,2,0}) do Tween(KBox,{ Position=UDim2.new(0.5,-180+dx,0.5,-105) },0.03); task.wait(0.03) end
+        end
+    end)
+    KBox.Position = UDim2.new(0.5,-180,0.7,-105)
+    Tween(KBox,{ Position=UDim2.new(0.5,-180,0.5,-105) },0.4,Enum.EasingStyle.Back)
+end
+
+local function _makeLoadingScreen(SG, cfg, theme, onDone)
+    local LF = New("Frame",{ Size=UDim2.new(1,0,1,0), BackgroundColor3=theme.Background, ZIndex=300, BorderSizePixel=0 }, SG)
+    New("TextLabel",{ Size=UDim2.new(0,400,0,40), Position=UDim2.new(0.5,-200,0.5,-60), BackgroundTransparency=1, Text=cfg.LoadingTitle or cfg.Title or "NexusUI", TextColor3=theme.TextPrimary, TextSize=22, Font=Enum.Font.GothamBold, ZIndex=301 }, LF)
+    New("TextLabel",{ Size=UDim2.new(0,400,0,24), Position=UDim2.new(0.5,-200,0.5,-16), BackgroundTransparency=1, Text=cfg.LoadingSubtitle or "", TextColor3=theme.TextSecondary, TextSize=13, Font=Enum.Font.Gotham, ZIndex=301 }, LF)
+    local BarBg = New("Frame",{ Size=UDim2.new(0,300,0,4), Position=UDim2.new(0.5,-150,0.5,20), BackgroundColor3=theme.Divider, BorderSizePixel=0, ZIndex=301 }, LF)
+    New("UICorner",{ CornerRadius=UDim.new(0,2) }, BarBg)
+    local BarFill = New("Frame",{ Size=UDim2.new(0,0,1,0), BackgroundColor3=theme.Accent, BorderSizePixel=0, ZIndex=302 }, BarBg)
+    New("UICorner",{ CornerRadius=UDim.new(0,2) }, BarFill)
+    local StatusL = New("TextLabel",{ Size=UDim2.new(0,300,0,18), Position=UDim2.new(0.5,-150,0.5,30), BackgroundTransparency=1, Text="Loading...", TextColor3=theme.TextSecondary, TextSize=11, Font=Enum.Font.Gotham, ZIndex=301 }, LF)
+    task.spawn(function()
+        local steps = {"Initializing","Loading modules","Setting up UI","Almost done"}
+        for i,s in ipairs(steps) do
+            StatusL.Text = s.."..."
+            Tween(BarFill,{ Size=UDim2.new(i/#steps,0,1,0) },0.3)
+            task.wait(0.25)
+        end
+        task.wait(0.1)
+        Tween(LF,{ BackgroundTransparency=1 },0.4)
+        for _, v in ipairs(LF:GetDescendants()) do
+            if v:IsA("TextLabel") then Tween(v,{ TextTransparency=1 },0.3) end
+            if v:IsA("Frame")     then Tween(v,{ BackgroundTransparency=1 },0.3) end
+        end
+        task.wait(0.45); LF:Destroy(); task.spawn(onDone)
+    end)
+end
+
+NexusUI:LoadConfig("Default")
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- CREATE WINDOW  (Seisen Hub Frontend)
+-- ═══════════════════════════════════════════════════════════════════════
+function NexusUI:CreateWindow(config)
+    config = config or {}
+
+    local Title    = config.Title or config.Name or "NexusUI"
+    local Sub      = config.Subtitle or ""
+    local Theme    = Themes[config.Theme or "Dark"] or Themes.Dark
+    NexusUI._currentTheme = Theme
+
+    local _uiAlpha  = config.Acrylic and 0.06 or 0
+    local dynTrans  = config.DynamicTransparency or false
+    local idleAlpha = config.IdleTransparency or 0.7
+
+    if config.Profile then self:SetProfile(config.Profile) end
+
+    local Camera = workspace.CurrentCamera
+    local vpSize = Camera.ViewportSize
+    local scaleF = math.min(1, vpSize.X/780, vpSize.Y/540)
+
+    -- Window dimensions (Seisen Hub proportions)
+    local WIN_W, WIN_H = 760, 500
+    local SB_W        = 140   -- sidebar width
+    local TB_H        = 44    -- topbar height
+
+    local okCG, cg = pcall(function() return game:GetService("CoreGui") end)
+    local guiName   = config.Stealth and _randomStr(10) or ("NexusUI_"..Title)
+    local SG = New("ScreenGui",{
+        Name=guiName, ResetOnSpawn=false, ZIndexBehavior=Enum.ZIndexBehavior.Sibling,
+    }, (okCG and cg) or LocalPlayer.PlayerGui)
+    NexusUI._screenGui = SG
+
+    -- ── Main Frame ─────────────────────────────────────────────────
+    local hw = math.floor(WIN_W/2); local hh = math.floor(WIN_H/2)
+    local MF = New("Frame",{
+        Size             = UDim2.new(0,WIN_W,0,WIN_H),
+        Position         = UDim2.new(0.5,-hw,0.5,-hh),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel  = 0,
+        ClipsDescendants = true,
+        Visible          = false,
+    }, SG)
+    NexusUI._mainFrame = MF
+    NexusUI._visible   = true
+
+    local _mfBaseScale = 1
+    if scaleF < 0.95 then
+        local sc = math.max(scaleF, 0.5); _mfBaseScale = sc
+        MF.Position = UDim2.new(0.5,-math.floor(hw*sc),0.5,-math.floor(hh*sc))
+    end
+    local _mfScale = New("UIScale",{ Scale=_mfBaseScale }, MF)
+    New("UICorner",{ CornerRadius=UDim.new(0,10) }, MF)
+    New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, MF)
+
+    if config.Acrylic then
+        MF.BackgroundTransparency = _uiAlpha
+        New("ImageLabel",{
+            Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+            Image="rbxassetid://9968344292", ImageTransparency=0.94,
+            ZIndex=0, ScaleType=Enum.ScaleType.Tile, TileSize=UDim2.new(0,128,0,128),
+        }, MF)
+    end
+
+    -- ── Top Bar ─────────────────────────────────────────────────────
+    local TB = New("Frame",{
+        Size=UDim2.new(1,0,0,TB_H), BackgroundColor3=Theme.Sidebar,
+        BorderSizePixel=0, ZIndex=2
+    }, MF)
+    -- Bottom border for topbar
+    New("Frame",{ Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=3 }, TB)
+
+    -- Title: "NEXUSUI" white + optional HUB accent (Seisen Hub style split title)
+    local titleParts = Title:upper():find("%s") and { Title:upper():match("^(%S+)%s+(.+)$") } or { Title:upper(), nil }
+    local titleMain  = titleParts[1] or Title:upper()
+    local titleSub2  = titleParts[2]
+
+    local TitleRow = New("Frame",{ Size=UDim2.new(0,200,1,0), Position=UDim2.new(0,14,0,0), BackgroundTransparency=1, ZIndex=3 }, TB)
+    local TitleLbl = New("TextLabel",{
+        Size=UDim2.new(0,0,1,0), AutomaticSize=Enum.AutomaticSize.X,
+        BackgroundTransparency=1, Text=titleMain,
+        TextColor3=Theme.TextPrimary, TextSize=16, Font=Enum.Font.GothamBold,
+        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=4,
+    }, TitleRow)
+    local SubLbl2
+    if titleSub2 then
+        SubLbl2 = New("TextLabel",{
+            Size=UDim2.new(0,0,1,0), AutomaticSize=Enum.AutomaticSize.X,
+            Position=UDim2.new(0,0,0,0),
+            BackgroundTransparency=1, Text=" "..titleSub2,
+            TextColor3=Theme.Accent, TextSize=16, Font=Enum.Font.GothamBold,
+            TextXAlignment=Enum.TextXAlignment.Left, ZIndex=4,
+        }, TitleRow)
+        local _layout = New("UIListLayout",{
+            FillDirection=Enum.FillDirection.Horizontal,
+            VerticalAlignment=Enum.VerticalAlignment.Center,
+            SortOrder=Enum.SortOrder.LayoutOrder,
+        }, TitleRow)
+        TitleLbl.LayoutOrder = 1
+        if SubLbl2 then SubLbl2.LayoutOrder = 2 end
+    end
+
+    -- Version badge (green pill — top right of header)
+    local rightX = WIN_W
+    if config.Version then
+        rightX = rightX - 8
+        local VerBadge = New("Frame",{
+            Size=UDim2.new(0,0,0,22), AutomaticSize=Enum.AutomaticSize.X,
+            Position=UDim2.new(1,-70,0.5,-11),
+            BackgroundColor3=Color3.fromRGB(38,180,90),
+            BorderSizePixel=0, ZIndex=3,
+        }, TB)
+        New("UICorner",{ CornerRadius=UDim.new(0,11) }, VerBadge)
+        New("UIPadding",{ PaddingLeft=UDim.new(0,10), PaddingRight=UDim.new(0,10) }, VerBadge)
+        New("TextLabel",{ Size=UDim2.new(0,0,1,0), AutomaticSize=Enum.AutomaticSize.X,
+            BackgroundTransparency=1, Text=config.Version,
+            TextColor3=Color3.new(1,1,1), TextSize=11, Font=Enum.Font.GothamBold, ZIndex=4 }, VerBadge)
+    end
+
+    -- Game badge (accent pill)
+    if config.Game or Sub ~= "" then
+        local GameBadge = New("Frame",{
+            Size=UDim2.new(0,0,0,22), AutomaticSize=Enum.AutomaticSize.X,
+            Position=UDim2.new(1,-150,0.5,-11),
+            BackgroundColor3=Theme.Accent,
+            BorderSizePixel=0, ZIndex=3,
+        }, TB)
+        New("UICorner",{ CornerRadius=UDim.new(0,11) }, GameBadge)
+        New("UIPadding",{ PaddingLeft=UDim.new(0,10), PaddingRight=UDim.new(0,10) }, GameBadge)
+        New("TextLabel",{ Size=UDim2.new(0,0,1,0), AutomaticSize=Enum.AutomaticSize.X,
+            BackgroundTransparency=1, Text=config.Game or Sub,
+            TextColor3=Color3.new(1,1,1), TextSize=11, Font=Enum.Font.GothamBold, ZIndex=4 }, GameBadge)
+    end
+
+    -- Window controls (minimize, close) — top right
+    local CloseBtn = New("TextButton",{
+        Size=UDim2.new(0,26,0,26), Position=UDim2.new(1,-36,0.5,-13),
+        BackgroundColor3=Color3.fromRGB(196,58,58),
+        Text="", ZIndex=3,
+    }, TB)
+    New("UICorner",{ CornerRadius=UDim.new(0,6) }, CloseBtn)
+    local _closeX = _makeIconEl(CloseBtn,"x",14,UDim2.new(0.5,-7,0.5,-7),Color3.new(1,1,1),4)
+    CloseBtn.MouseEnter:Connect(function() Tween(CloseBtn,{ BackgroundColor3=Color3.fromRGB(230,68,68) },0.1) end)
+    CloseBtn.MouseLeave:Connect(function() Tween(CloseBtn,{ BackgroundColor3=Color3.fromRGB(196,58,58) },0.1) end)
+
+    local MinBtn = New("TextButton",{
+        Size=UDim2.new(0,26,0,26), Position=UDim2.new(1,-68,0.5,-13),
+        BackgroundColor3=Theme.PanelAlt,
+        Text="-", TextColor3=Theme.TextSecondary, TextSize=16, Font=Enum.Font.GothamBold, ZIndex=3,
+    }, TB)
+    New("UICorner",{ CornerRadius=UDim.new(0,6) }, MinBtn)
+    Tween(MinBtn,{},0)
+
+    -- ── Sidebar ──────────────────────────────────────────────────────
+    local SB = New("Frame",{
+        Size=UDim2.new(0,SB_W,1,-TB_H), Position=UDim2.new(0,0,0,TB_H),
+        BackgroundColor3=Theme.Sidebar, BorderSizePixel=0, ZIndex=2,
+        ClipsDescendants=true,
+    }, MF)
+    -- Sidebar right border
+    New("Frame",{ Size=UDim2.new(0,1,1,0), Position=UDim2.new(1,-1,0,0), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=3 }, SB)
+
+    -- MAIN NAVIGATION label
+    local NavLabel = New("TextLabel",{
+        Size=UDim2.new(1,-20,0,14), Position=UDim2.new(0,10,0,10),
+        BackgroundTransparency=1, Text="MAIN NAVIGATION",
+        TextColor3=Theme.TextSecondary, TextSize=9, Font=Enum.Font.GothamBold,
+        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=3,
+    }, SB)
+
+    -- Sidebar nav container (below label)
+    local NavContainer = New("Frame",{
+        Size=UDim2.new(1,0,1,-28), Position=UDim2.new(0,0,0,28),
+        BackgroundTransparency=1, ZIndex=2, ClipsDescendants=false,
+    }, SB)
+    New("UIListLayout",{
+        FillDirection=Enum.FillDirection.Vertical,
+        SortOrder=Enum.SortOrder.LayoutOrder,
+        Padding=UDim.new(0,2),
+    }, NavContainer)
+    New("UIPadding",{ PaddingLeft=UDim.new(0,6), PaddingRight=UDim.new(0,6), PaddingTop=UDim.new(0,4) }, NavContainer)
+
+    -- Search bar at the very bottom of sidebar (Seisen Hub style)
+    local SbSearchF = New("Frame",{
+        Size=UDim2.new(1,-12,0,28), Position=UDim2.new(0,6,1,-40),
+        BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=3,
+    }, SB)
+    New("UICorner",{ CornerRadius=UDim.new(0,7) }, SbSearchF)
+    New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, SbSearchF)
+    _makeIconEl(SbSearchF,"search",13,UDim2.new(0,7,0.5,-6),Theme.TextSecondary,4)
+    local SbSearchLbl = New("TextLabel",{
+        Size=UDim2.new(1,-28,1,0), Position=UDim2.new(0,24,0,0),
+        BackgroundTransparency=1, Text="Search...",
+        TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.Gotham,
+        TextXAlignment=Enum.TextXAlignment.Left, ZIndex=4,
+    }, SbSearchF)
+    local SbSearchBtn = New("TextButton",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="", ZIndex=5 }, SbSearchF)
+
+    -- ── Content Area ─────────────────────────────────────────────────
+    local CA = New("Frame",{
+        Size=UDim2.new(1,-SB_W-1,1,-TB_H),
+        Position=UDim2.new(0,SB_W+1,0,TB_H),
+        BackgroundTransparency=1, BorderSizePixel=0,
+        ZIndex=2, ClipsDescendants=true,
+    }, MF)
+
+    -- Notification container
+    local NC = New("Frame",{
+        Size=UDim2.new(0,270,0,400),
+        Position=UDim2.new(1,-278,1,-410),
+        BackgroundTransparency=1, ZIndex=600,
+    }, SG)
+    New("UIListLayout",{ FillDirection=Enum.FillDirection.Vertical, VerticalAlignment=Enum.VerticalAlignment.Bottom, SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,6) }, NC)
+    New("UIPadding",{ PaddingBottom=UDim.new(0,10), PaddingRight=UDim.new(0,8) }, NC)
+
+    local _blurEffect = nil
+    if config.Acrylic then
+        pcall(function()
+            _blurEffect = Instance.new("BlurEffect")
+            _blurEffect.Size   = 8
+            _blurEffect.Parent = Lighting
+        end)
+    end
+
+    -- ── Minimized floating icon ───────────────────────────────────────
+    local MinIcon      = New("Frame",{ Size=UDim2.new(0,48,0,48), Position=UDim2.new(0,20,0.5,-24), BackgroundColor3=Theme.Background, BorderSizePixel=0, Visible=true, ZIndex=500 }, SG)
+    New("UICorner",{ CornerRadius=UDim.new(0,12) }, MinIcon)
+    local MinStroke    = New("UIStroke",{ Color=Theme.Accent, Thickness=1.5 }, MinIcon)
+    local MinIconScale = New("UIScale",{ Scale=1 }, MinIcon)
+    New("TextLabel",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text=(titleMain or "N"):sub(1,1), TextColor3=Theme.Accent, TextSize=22, Font=Enum.Font.GothamBold, ZIndex=501 }, MinIcon)
+
+    do
+        local dragging=false; local dStart=Vector2.new(); local fStart=UDim2.new()
+        local TAP_THRESH=6; local mc
+        MinIcon.InputBegan:Connect(function(i)
+            if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            dragging=true; dStart=Vector2.new(i.Position.X,i.Position.Y); fStart=MinIcon.Position
+            Tween(MinIconScale,{ Scale=0.88 },0.12,Enum.EasingStyle.Quint)
+            mc = UIS.InputChanged:Connect(function(inp)
+                if not dragging then return end
+                if inp.UserInputType ~= Enum.UserInputType.MouseMovement and inp.UserInputType ~= Enum.UserInputType.Touch then return end
+                local d = Vector2.new(inp.Position.X-dStart.X,inp.Position.Y-dStart.Y)
+                MinIcon.Position = UDim2.new(fStart.X.Scale,fStart.X.Offset+d.X,fStart.Y.Scale,fStart.Y.Offset+d.Y)
+            end)
+        end)
+        MinIcon.InputEnded:Connect(function(i)
+            if not dragging then return end
+            if i.UserInputType ~= Enum.UserInputType.MouseButton1 and i.UserInputType ~= Enum.UserInputType.Touch then return end
+            local dist = Vector2.new(i.Position.X-dStart.X,i.Position.Y-dStart.Y).Magnitude
+            dragging=false
+            Tween(MinIconScale,{ Scale=1 },0.22,Enum.EasingStyle.Elastic,Enum.EasingDirection.Out)
+            if mc then mc:Disconnect(); mc=nil end
+            if dist<=TAP_THRESH then
+                local vis = MF.Visible
+                if vis then
+                    Tween(_mfScale,{ Scale=_mfBaseScale*0.91 },0.2,Enum.EasingStyle.Quint)
+                    Tween(MF,{ BackgroundTransparency=1 },0.18)
+                    task.wait(0.22); MF.Visible=false; _mfScale.Scale=_mfBaseScale; MF.BackgroundTransparency=_uiAlpha
+                else
+                    MF.Visible=true; _mfScale.Scale=_mfBaseScale*0.82; MF.BackgroundTransparency=1
+                    Tween(_mfScale,{ Scale=_mfBaseScale },0.42,Enum.EasingStyle.Elastic)
+                    Tween(MF,{ BackgroundTransparency=_uiAlpha },0.28)
+                end
+            end
+        end)
+        MinIcon.MouseEnter:Connect(function() if not dragging then Tween(MinIconScale,{ Scale=1.1 },0.18,Enum.EasingStyle.Back) end end)
+        MinIcon.MouseLeave:Connect(function() if not dragging then Tween(MinIconScale,{ Scale=1   },0.16,Enum.EasingStyle.Quint) end end)
+    end
+
+    local visible = true
+    local function _setVisible(s)
+        visible = s; NexusUI._visible = s
+        if s then
+            MF.Visible=true; _mfScale.Scale=_mfBaseScale*0.84; MF.BackgroundTransparency=1
+            Tween(_mfScale,{ Scale=_mfBaseScale },0.42,Enum.EasingStyle.Elastic)
+            Tween(MF,{ BackgroundTransparency=_uiAlpha },0.28)
+        else
+            Tween(_mfScale,{ Scale=_mfBaseScale*0.91 },0.22,Enum.EasingStyle.Quint)
+            Tween(MF,{ BackgroundTransparency=1 },0.20)
+            task.wait(0.24); MF.Visible=false; _mfScale.Scale=_mfBaseScale; MF.BackgroundTransparency=_uiAlpha
+        end
+    end
+
+    -- Dragging
+    do
+        local dragging=false; local dragStart; local startPos; local dc
+        TB.InputBegan:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+                dragging=true; dragStart=i.Position; startPos=MF.Position
+                if dc then dc:Disconnect() end
+                dc = UIS.InputChanged:Connect(function(inp)
+                    if not dragging then return end
+                    if inp.UserInputType==Enum.UserInputType.MouseMovement or inp.UserInputType==Enum.UserInputType.Touch then
+                        local d=inp.Position-dragStart
+                        MF.Position=UDim2.new(startPos.X.Scale,startPos.X.Offset+d.X,startPos.Y.Scale,startPos.Y.Offset+d.Y)
+                        if _searchOpen then SearchOverlay.Position=_searchOverlayPos() end
+                    end
+                end)
+            end
+        end)
+        TB.InputEnded:Connect(function(i)
+            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+                dragging=false; if dc then dc:Disconnect(); dc=nil end
+            end
+        end)
+    end
+
+    if dynTrans then
+        MF.MouseEnter:Connect(function() Tween(MF,{ BackgroundTransparency=_uiAlpha },0.3) end)
+        MF.MouseLeave:Connect(function() Tween(MF,{ BackgroundTransparency=idleAlpha },0.5) end)
+    end
+
+    -- ── Search overlay ────────────────────────────────────────────────
+    local _searchReg = {}
+    local function _registerSearch(title, icon, activateFn)
+        if title and title ~= "" then table.insert(_searchReg,{ title=title, icon=icon, fn=activateFn }) end
+    end
+
+    local SearchOverlay = New("Frame",{
+        Size=UDim2.new(0,340,0,420), BackgroundColor3=Theme.Panel,
+        BorderSizePixel=0, Visible=false, ZIndex=500,
+    }, SG)
+    New("UICorner",{ CornerRadius=UDim.new(0,10) }, SearchOverlay)
+    New("UIStroke",{ Color=Theme.Accent, Thickness=1 }, SearchOverlay)
+
+    local SrchHeader = New("Frame",{ Size=UDim2.new(1,0,0,44), BackgroundTransparency=1, ZIndex=501 }, SearchOverlay)
+    New("TextLabel",{ Size=UDim2.new(1,-56,1,0), Position=UDim2.new(0,14,0,0), BackgroundTransparency=1, Text="Search", TextColor3=Theme.TextPrimary, TextSize=14, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=502 }, SrchHeader)
+    local SrchExitBtn = New("TextButton",{ Size=UDim2.new(0,28,0,28), Position=UDim2.new(1,-38,0.5,-14), BackgroundColor3=Color3.fromRGB(196,55,55), Text="", ZIndex=503 }, SrchHeader)
+    New("UICorner",{ CornerRadius=UDim.new(0,7) }, SrchExitBtn)
+    _makeIconEl(SrchExitBtn,"x",13,UDim2.new(0.5,-6,0.5,-6),Color3.new(1,1,1),504)
+    SrchExitBtn.MouseEnter:Connect(function() Tween(SrchExitBtn,{ BackgroundColor3=Color3.fromRGB(230,65,65) },0.1) end)
+    SrchExitBtn.MouseLeave:Connect(function() Tween(SrchExitBtn,{ BackgroundColor3=Color3.fromRGB(196,55,55) },0.1) end)
+    New("Frame",{ Size=UDim2.new(1,-20,0,1), Position=UDim2.new(0,10,0,44), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=501 }, SearchOverlay)
+
+    local SrchInputF = New("Frame",{ Size=UDim2.new(1,-16,0,34), Position=UDim2.new(0,8,0,52), BackgroundColor3=Theme.Background, BorderSizePixel=0, ZIndex=501 }, SearchOverlay)
+    New("UICorner",{ CornerRadius=UDim.new(0,7) }, SrchInputF)
+    New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, SrchInputF)
+    _makeIconEl(SrchInputF,"search",15,UDim2.new(0,8,0.5,-7),Theme.TextSecondary,502)
+    local SrchBox = New("TextBox",{ Size=UDim2.new(1,-42,0,22), Position=UDim2.new(0,32,0.5,-11), BackgroundTransparency=1, Text="", PlaceholderText="Search elements...", TextColor3=Theme.TextPrimary, PlaceholderColor3=Theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham, ZIndex=502, ClearTextOnFocus=false }, SrchInputF)
+
+    local SrchList = New("ScrollingFrame",{ Size=UDim2.new(1,-16,1,-100), Position=UDim2.new(0,8,0,96), BackgroundTransparency=1, ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent, CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y, ZIndex=501 }, SearchOverlay)
+    New("UIListLayout",{ SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,4) }, SrchList)
+    New("UIPadding",{ PaddingTop=UDim.new(0,4), PaddingBottom=UDim.new(0,4) }, SrchList)
+
+    local SrchHint = New("TextLabel",{ Size=UDim2.new(1,0,0,48), BackgroundTransparency=1, Text="Type to search elements...", TextColor3=Theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham, ZIndex=502, Visible=true  }, SrchList)
+    local SrchNone = New("TextLabel",{ Size=UDim2.new(1,0,0,38), BackgroundTransparency=1, Text="No results found",            TextColor3=Theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham, ZIndex=502, Visible=false }, SrchList)
+
+    local _srchItems  = {}
+    local _searchOpen = false
+
+    local function _rebuildSearch(query)
+        for _, item in ipairs(_srchItems) do item:Destroy() end
+        _srchItems = {}
+        local q = query:lower()
+        if q == "" then SrchHint.Visible=true; SrchNone.Visible=false; return end
+        SrchHint.Visible=false
+        local count = 0
+        for i, entry in ipairs(_searchReg) do
+            if entry.title:lower():find(q,1,true) then
+                local R = New("TextButton",{ Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.PanelAlt, Text="", ZIndex=502, LayoutOrder=i }, SrchList)
+                New("UICorner",{ CornerRadius=UDim.new(0,7) }, R)
+                _makeIconEl(R,entry.icon,14,UDim2.new(0,9,0.5,-7),Theme.Accent,503)
+                New("TextLabel",{ Size=UDim2.new(1,-42,0,18), Position=UDim2.new(0,30,0,3), BackgroundTransparency=1, Text=entry.title, TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=503 }, R)
+                New("TextLabel",{ Size=UDim2.new(1,-42,0,12), Position=UDim2.new(0,30,1,-14), BackgroundTransparency=1, Text='matching "'..query..'"', TextColor3=Theme.Accent, TextSize=9, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=503 }, R)
+                R.MouseEnter:Connect(function() Tween(R,{ BackgroundColor3=Theme.Divider },0.1) end)
+                R.MouseLeave:Connect(function() Tween(R,{ BackgroundColor3=Theme.PanelAlt },0.1) end)
+                local fn = entry.fn
+                R.MouseButton1Click:Connect(function()
+                    _searchOpen=false; SearchOverlay.Visible=false; SrchBox.Text=""
+                    SbSearchLbl.Text="Search..."
+                    if fn then task.spawn(fn) end
+                end)
+                table.insert(_srchItems, R)
+                count = count+1
+            end
+        end
+        SrchNone.Visible = (count==0)
+    end
+
+    local _searchDebounce
+    SrchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        if _searchDebounce then task.cancel(_searchDebounce) end
+        _searchDebounce = task.delay(0.1, function() _rebuildSearch(SrchBox.Text) end)
+    end)
+
+    local function _searchOverlayPos()
+        local ap=MF.AbsolutePosition; local as=MF.AbsoluteSize
+        return UDim2.new(0,ap.X+as.X/2-170,0,ap.Y+as.Y/2-210)
+    end
+
+    local _srchScale = New("UIScale",{ Scale=1 }, SearchOverlay)
+
+    local function _openSearch()
+        if _searchOpen then return end
+        _searchOpen=true; SbSearchLbl.Text="Searching..."
+        _rebuildSearch("")
+        SearchOverlay.Position=_searchOverlayPos()
+        SearchOverlay.Visible=true; SearchOverlay.BackgroundTransparency=1
+        _srchScale.Scale=0.88
+        Tween(_srchScale,{ Scale=1 },0.32,Enum.EasingStyle.Elastic)
+        Tween(SearchOverlay,{ BackgroundTransparency=0 },0.20,Enum.EasingStyle.Quint)
+        task.defer(function() SrchBox:CaptureFocus() end)
+    end
+
+    local function _closeSearch()
+        if not _searchOpen then return end
+        _searchOpen=false; SbSearchLbl.Text="Search..."
+        Tween(_srchScale,{ Scale=0.90 },0.16,Enum.EasingStyle.Quint)
+        Tween(SearchOverlay,{ BackgroundTransparency=1 },0.16,Enum.EasingStyle.Quint)
+        task.wait(0.18); SearchOverlay.Visible=false; SrchBox.Text=""; _srchScale.Scale=1
+    end
+
+    SbSearchBtn.MouseButton1Click:Connect(_openSearch)
+    SrchExitBtn.MouseButton1Click:Connect(function() task.spawn(_closeSearch) end)
+    UIS.InputBegan:Connect(function(i,gpe)
+        if not gpe and i.KeyCode==Enum.KeyCode.Escape and _searchOpen then task.spawn(_closeSearch) end
+    end)
+
+    -- ── Window Object ─────────────────────────────────────────────────
+    local WO = { Theme=Theme, Tabs={} }
+    local _streamerMode=false; local _sensLabels={TitleLbl}
+
+    local toggleKey = config.ToggleKey or config.ToggleUIKeybind or Enum.KeyCode.RightControl
+    if type(toggleKey)=="string" then toggleKey = Enum.KeyCode[toggleKey] or Enum.KeyCode.RightControl end
+
+    local _updaters = {}
+    local function Reg(fn) table.insert(_updaters,fn) end
+
+    Reg(function()
+        MF.BackgroundColor3=Theme.Background; TB.BackgroundColor3=Theme.Sidebar
+        SB.BackgroundColor3=Theme.Sidebar
+        MinIcon.BackgroundColor3=Theme.Background; MinStroke.Color=Theme.Accent
+        MinBtn.BackgroundColor3=Theme.PanelAlt; MinBtn.TextColor3=Theme.TextSecondary
+        SbSearchF.BackgroundColor3=Theme.PanelAlt; SbSearchLbl.TextColor3=Theme.TextSecondary
+        SearchOverlay.BackgroundColor3=Theme.Panel
+        SrchInputF.BackgroundColor3=Theme.Background
+        SrchBox.TextColor3=Theme.TextPrimary; SrchBox.PlaceholderColor3=Theme.TextSecondary
+        TitleLbl.TextColor3=Theme.TextPrimary
+        if SubLbl2 then SubLbl2.TextColor3=Theme.Accent end
+        NavLabel.TextColor3=Theme.TextSecondary
+    end)
+
+    function WO:UpdateTheme(changes)
+        for k,v in pairs(changes) do Theme[k]=v end
+        for _, fn in ipairs(_updaters) do pcall(fn) end
+    end
+    function WO:SetTheme(name)
+        local t=Themes[name]; if not t then return end
+        for k,v in pairs(t) do Theme[k]=v end
+        NexusUI._currentTheme=Theme
+        for _, fn in ipairs(_updaters) do pcall(fn) end
+    end
+    function WO:GetThemeNames()
+        local names={}; for k in pairs(Themes) do names[#names+1]=k end
+        table.sort(names); return names
+    end
+    function WO:GetStats()
+        local ss=math.floor(tick()-_statsSession)
+        return { executions=NexusUI.Stats.executions, total_time=(NexusUI.Stats.total_time or 0)+ss, first_run=NexusUI.Stats.first_run, last_run=NexusUI.Stats.last_run, session=ss }
+    end
+    function WO:SetTransparency(v)
+        _uiAlpha=math.clamp(v,0,0.95)
+        if visible then Tween(MF,{ BackgroundTransparency=_uiAlpha },0.18) end
+    end
+    function WO:GetTransparency() return _uiAlpha end
+    function WO:SetVisible(s)  _setVisible(s) end
+    function WO:GetVisible()   return visible end
+    function WO:IsVisible()    return visible end
+    function WO:OpenSearch()   _openSearch() end
+    function WO:Destroy()
+        _statsActive=false
+        if _blurEffect then pcall(function() _blurEffect:Destroy() end) end
+        SG:Destroy()
+    end
+    function WO:SetToggleKey(k) toggleKey=k end
+    function WO:GetToggleKey()  return toggleKey end
+    function WO:SetStreamerMode(en)
+        _streamerMode=en
+        for _, lbl in ipairs(_sensLabels) do if lbl and lbl.Parent then lbl.Visible=not en end end
+    end
+    function WO:IsStreamerMode()       return _streamerMode end
+    function WO:AddSensitiveLabel(lbl) table.insert(_sensLabels,lbl) end
+    function WO:LoadConfiguration()    NexusUI:LoadConfiguration() end
+
+    UIS.InputBegan:Connect(function(i,gpe)
+        if not gpe and i.KeyCode==toggleKey and not UIS:GetFocusedTextBox() then _setVisible(not visible) end
+    end)
+
+    MinBtn.MouseButton1Click:Connect(function() _setVisible(not visible) end)
+    CloseBtn.MouseButton1Click:Connect(function()
+        Tween(_mfScale,{ Scale=_mfBaseScale*0.86 },0.2,Enum.EasingStyle.Quint)
+        Tween(MF,{ BackgroundTransparency=1 },0.18)
+        task.wait(0.22); _statsActive=false
+        if _blurEffect then pcall(function() _blurEffect:Destroy() end) end
+        SG:Destroy()
+    end)
+
+    -- ── NOTIFICATIONS ─────────────────────────────────────────────────
+    function WO:Notify(cfg2)
+        cfg2 = cfg2 or {}
+        local dur = cfg2.Duration or 4
+        local hasActions = cfg2.Actions and next(cfg2.Actions)
+        local N = New("Frame",{
+            Size=UDim2.new(1,0,0,hasActions and 86 or 62),
+            BackgroundColor3=cfg2.Color or Theme.NotifyBg,
+            BorderSizePixel=0, BackgroundTransparency=1, ZIndex=601,
+        }, NC)
+        New("UICorner",{ CornerRadius=UDim.new(0,8) }, N)
+        local _ns = New("UIScale",{ Scale=0.88 }, N)
+        Tween(_ns,{ Scale=1 },0.26,Enum.EasingStyle.Back)
+        local xOff=12
+        if cfg2.Image and tonumber(cfg2.Image) then
+            New("ImageLabel",{ Size=UDim2.new(0,28,0,28), Position=UDim2.new(0,10,0,10), BackgroundTransparency=1, Image="rbxassetid://"..tostring(cfg2.Image), ZIndex=602 }, N)
+            xOff=46
+        end
+        New("TextLabel",{ Size=UDim2.new(1,-(xOff+8),0,18), Position=UDim2.new(0,xOff,0,8), BackgroundTransparency=1, Text=cfg2.Title or "Notification", TextColor3=Color3.new(1,1,1), TextSize=13, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=602 }, N)
+        New("TextLabel",{ Size=UDim2.new(1,-(xOff+8),0,28), Position=UDim2.new(0,xOff,0,27), BackgroundTransparency=1, Text=cfg2.Content or cfg2.Message or "", TextColor3=Color3.fromRGB(200,210,230), TextSize=11, Font=Enum.Font.Gotham, TextWrapped=true, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=602 }, N)
+        if hasActions then
+            local ai=0
+            for _, aData in pairs(cfg2.Actions) do
+                local AB=New("TextButton",{ Size=UDim2.new(0,80,0,18), Position=UDim2.new(0,xOff+ai*88,0,63), BackgroundColor3=Theme.Accent, Text=aData.Name or "Action", TextColor3=Color3.new(1,1,1), TextSize=10, Font=Enum.Font.GothamBold, ZIndex=603 }, N)
+                New("UICorner",{ CornerRadius=UDim.new(0,4) }, AB)
+                AB.MouseButton1Click:Connect(function()
+                    task.spawn(aData.Callback or function() end)
+                    Tween(N,{ BackgroundTransparency=1 },0.2); task.wait(0.25); N:Destroy()
+                end)
+                ai=ai+1
+            end
+        end
+        local PB=New("Frame",{ Size=UDim2.new(1,0,0,3), Position=UDim2.new(0,0,1,-3), BackgroundColor3=Color3.new(1,1,1), BackgroundTransparency=0.6, BorderSizePixel=0, ZIndex=603 }, N)
+        New("UICorner",{ CornerRadius=UDim.new(0,2) }, PB)
+        Tween(N,{ BackgroundTransparency=0.08 },0.28,Enum.EasingStyle.Quint)
+        Tween(PB,{ Size=UDim2.new(0,0,0,3) },dur,Enum.EasingStyle.Linear)
+        task.delay(dur, function()
+            if not N.Parent then return end
+            Tween(_ns,{ Scale=0.90 },0.16,Enum.EasingStyle.Quint)
+            Tween(N,{ BackgroundTransparency=1 },0.20)
+            task.wait(0.22); N:Destroy()
+        end)
+    end
+
+    -- ── DIALOG ────────────────────────────────────────────────────────
+    function WO:Dialog(cfg2)
+        cfg2 = cfg2 or {}
+        local overlay=New("Frame",{ Size=UDim2.new(1,0,1,0), BackgroundColor3=Color3.new(0,0,0), BackgroundTransparency=0.5, ZIndex=50 }, MF)
+        local DB=New("Frame",{ Size=UDim2.new(0,320,0,158), Position=UDim2.new(0.5,-160,0.5,-79), BackgroundColor3=Theme.Panel, BorderSizePixel=0, ZIndex=51 }, overlay)
+        New("UICorner",{ CornerRadius=UDim.new(0,10) }, DB)
+        New("UIStroke",{ Color=Theme.Accent, Thickness=1 }, DB)
+        New("TextLabel",{ Size=UDim2.new(1,-20,0,28), Position=UDim2.new(0,12,0,12), BackgroundTransparency=1, Text=cfg2.Title or "Confirm", TextColor3=Theme.TextPrimary, TextSize=15, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=52 }, DB)
+        New("TextLabel",{ Size=UDim2.new(1,-20,0,48), Position=UDim2.new(0,12,0,44), BackgroundTransparency=1, Text=cfg2.Content or "", TextColor3=Theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham, TextWrapped=true, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=52 }, DB)
+        local btns=cfg2.Buttons or {{ Title="OK", Color=Theme.Accent, Callback=function() end }}
+        local bW=(296-(#btns-1)*8)/#btns
+        for i,b in ipairs(btns) do
+            local BB=New("TextButton",{ Size=UDim2.new(0,bW,0,28), Position=UDim2.new(0,12+(i-1)*(bW+8),1,-40), BackgroundColor3=b.Color or Theme.Accent, Text=b.Title or "OK", TextColor3=Color3.new(1,1,1), TextSize=13, Font=Enum.Font.GothamBold, ZIndex=52 }, DB)
+            New("UICorner",{ CornerRadius=UDim.new(0,6) }, BB)
+            BB.MouseButton1Click:Connect(function() overlay:Destroy(); task.spawn(b.Callback or function() end) end)
+        end
+        DB.Position=UDim2.new(0.5,-160,0.3,-79); DB.BackgroundTransparency=1
+        Tween(DB,{ Position=UDim2.new(0.5,-160,0.5,-79), BackgroundTransparency=0 },0.30,Enum.EasingStyle.Back)
+    end
+
+    -- ═══════════════════════════════════════════════════════════════════
+    -- CREATE TAB  (Seisen Hub sidebar nav style)
+    -- ═══════════════════════════════════════════════════════════════════
+    function WO:CreateTab(cfg2, iconId)
+        if type(cfg2)=="string" then cfg2={ Title=cfg2, Icon=type(iconId)=="string" and iconId or nil } end
+        cfg2 = cfg2 or {}
+        local tabTitle = cfg2.Title or "Tab"
+
+        -- Sidebar button (icon + text label, full width)
+        local TBtn = New("TextButton",{
+            Size=UDim2.new(1,0,0,36),
+            BackgroundColor3=Theme.PanelAlt, BackgroundTransparency=1,
+            Text="", ZIndex=3,
+        }, NavContainer)
+        New("UICorner",{ CornerRadius=UDim.new(0,8) }, TBtn)
+
+        -- Left accent bar
+        local AccBar = New("Frame",{
+            Size=UDim2.new(0,3,0,22), Position=UDim2.new(0,0,0.5,-11),
+            BackgroundColor3=Theme.Accent, BackgroundTransparency=1,
+            BorderSizePixel=0, ZIndex=4,
+        }, TBtn)
+        New("UICorner",{ CornerRadius=UDim.new(0,2) }, AccBar)
+
+        -- Icon
+        local resolvedIcon = _isAssetId(cfg2.Icon) and cfg2.Icon or GetIcon(cfg2.Icon or "layers")
+        local isImgIcon    = _isAssetId(resolvedIcon)
+        local IL
+        if isImgIcon then
+            IL = New("ImageLabel",{ Size=UDim2.new(0,16,0,16), Position=UDim2.new(0,10,0.5,-8), BackgroundTransparency=1, Image=resolvedIcon, ImageColor3=Theme.TextSecondary, ScaleType=Enum.ScaleType.Fit, ZIndex=4 }, TBtn)
+        else
+            IL = New("TextLabel",{ Size=UDim2.new(0,16,0,16), Position=UDim2.new(0,10,0.5,-8), BackgroundTransparency=1, Text=resolvedIcon, TextColor3=Theme.TextSecondary, TextSize=13, Font=Enum.Font.GothamBold, ZIndex=4 }, TBtn)
+        end
+
+        -- Full text label (not truncated — Seisen Hub shows full nav names)
+        local TL = New("TextLabel",{
+            Size=UDim2.new(1,-34,1,0), Position=UDim2.new(0,30,0,0),
+            BackgroundTransparency=1, Text=tabTitle,
+            TextColor3=Theme.TextSecondary, TextSize=12, Font=Enum.Font.Gotham,
+            TextXAlignment=Enum.TextXAlignment.Left, ZIndex=4,
+        }, TBtn)
+
+        -- Badge
+        local BadgeF=New("Frame",{ Size=UDim2.new(0,16,0,16), Position=UDim2.new(1,-4,0,-2), AnchorPoint=Vector2.new(1,0), BackgroundColor3=Color3.fromRGB(220,60,60), Visible=false, ZIndex=8 }, TBtn)
+        New("UICorner",{ CornerRadius=UDim.new(0.5,0) }, BadgeF)
+        local BadgeLbl=New("TextLabel",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="", TextColor3=Color3.new(1,1,1), TextSize=8, Font=Enum.Font.GothamBold, ZIndex=9 }, BadgeF)
+
+        local function _setIco(col)
+            if isImgIcon then IL.ImageColor3=col else IL.TextColor3=col end
+        end
+
+        -- Tab content frame (two-column layout: left col + right col)
+        local TF = New("Frame",{
+            Size=UDim2.new(1,0,1,0), BackgroundTransparency=1,
+            BorderSizePixel=0, ZIndex=2, Visible=false, ClipsDescendants=true,
+        }, CA)
+
+        -- Two-column scrolling setup
+        local LeftCol = New("ScrollingFrame",{
+            Size=UDim2.new(0.5,-5,1,0), Position=UDim2.new(0,0,0,0),
+            BackgroundTransparency=1, BorderSizePixel=0,
+            ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent,
+            CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y,
+            ZIndex=2,
+        }, TF)
+        New("UIPadding",{ PaddingTop=UDim.new(0,10), PaddingLeft=UDim.new(0,8), PaddingRight=UDim.new(0,4), PaddingBottom=UDim.new(0,10) }, LeftCol)
+        New("UIListLayout",{ FillDirection=Enum.FillDirection.Vertical, SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,8) }, LeftCol)
+
+        local RightCol = New("ScrollingFrame",{
+            Size=UDim2.new(0.5,-5,1,0), Position=UDim2.new(0.5,5,0,0),
+            BackgroundTransparency=1, BorderSizePixel=0,
+            ScrollBarThickness=3, ScrollBarImageColor3=Theme.Accent,
+            CanvasSize=UDim2.new(0,0,0,0), AutomaticCanvasSize=Enum.AutomaticSize.Y,
+            ZIndex=2,
+        }, TF)
+        New("UIPadding",{ PaddingTop=UDim.new(0,10), PaddingLeft=UDim.new(0,4), PaddingRight=UDim.new(0,8), PaddingBottom=UDim.new(0,10) }, RightCol)
+        New("UIListLayout",{ FillDirection=Enum.FillDirection.Vertical, SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,8) }, RightCol)
+
+        -- Disable two-column and use single column if TwoColumn = false
+        if cfg2.TwoColumn == false then
+            LeftCol.Size  = UDim2.new(1,0,1,0)
+            RightCol.Visible = false
+        end
+
+        local _sectionCount = 0
+        local function _nextCol()
+            _sectionCount = _sectionCount+1
+            if cfg2.TwoColumn==false then return LeftCol end
+            return (_sectionCount%2 == 1) and LeftCol or RightCol
+        end
+
+        Reg(function()
+            local active = TF.Visible
+            _setIco(active and Theme.Accent or Theme.TextSecondary)
+            TL.TextColor3=active and Theme.TextPrimary or Theme.TextSecondary
+            TL.Font=active and Enum.Font.GothamBold or Enum.Font.Gotham
+            AccBar.BackgroundColor3=Theme.Accent
+        end)
+
+        local function Activate()
+            for _, t in pairs(WO.Tabs) do
+                if t.Frame.Visible then
+                    t.Frame.Visible=false
+                    if t.isImg then Tween(t.BI,{ ImageColor3=Theme.TextSecondary },0.18)
+                    else             Tween(t.BI,{ TextColor3 =Theme.TextSecondary },0.18) end
+                    Tween(t.AB,{ BackgroundTransparency=1 },0.18)
+                    Tween(t.Btn,{ BackgroundTransparency=1 },0.18)
+                    t.TL.TextColor3=Theme.TextSecondary; t.TL.Font=Enum.Font.Gotham
+                end
+            end
+            TF.Visible=true
+            if isImgIcon then Tween(IL,{ ImageColor3=Theme.Accent },0.20)
+            else              Tween(IL,{ TextColor3 =Theme.Accent },0.20) end
+            TL.TextColor3=Theme.TextPrimary; TL.Font=Enum.Font.GothamBold
+            Tween(AccBar,{ BackgroundTransparency=0 },0.20)
+            Tween(TBtn,{ BackgroundTransparency=0.88 },0.18)
+        end
+
+        TBtn.MouseButton1Click:Connect(Activate)
+        TBtn.MouseEnter:Connect(function() if not TF.Visible then Tween(TBtn,{ BackgroundTransparency=0.93 },0.12) end end)
+        TBtn.MouseLeave:Connect(function() if not TF.Visible then Tween(TBtn,{ BackgroundTransparency=1   },0.12) end end)
+        table.insert(WO.Tabs,{ Frame=TF, Btn=TBtn, BI=IL, AB=AccBar, TL=TL, isImg=isImgIcon })
+        if #WO.Tabs==1 then Activate() end
+
+        local TO = {}
+        function TO:Select() Activate() end
+        function TO:SetBadge(n)
+            if n and n>0 then BadgeLbl.Text=n>99 and "99+" or tostring(n); BadgeF.Visible=true
+            else BadgeF.Visible=false end
+        end
+        function TO:ClearBadge() BadgeF.Visible=false end
+
+        local sOrdGlobal = 0
+        local function GO() sOrdGlobal=sOrdGlobal+1; return sOrdGlobal end
+
+        -- ═══════════════════════════════════════════════════════════
+        -- CREATE SECTION  (Seisen Hub card style)
+        -- ═══════════════════════════════════════════════════════════
+        function TO:CreateSection(titleOrCfg)
+            local sTitle, collapsible
+            if type(titleOrCfg)=="string" then sTitle=titleOrCfg
+            elseif type(titleOrCfg)=="table" then sTitle=titleOrCfg.Title; collapsible=titleOrCfg.Collapsible end
+
+            local colFrame = _nextCol()
+
+            local SF = New("Frame",{
+                Size=UDim2.new(1,0,0,0), AutomaticSize=Enum.AutomaticSize.Y,
+                BackgroundColor3=Theme.Panel, BorderSizePixel=0,
+                ZIndex=3, LayoutOrder=GO(),
+            }, colFrame)
+            New("UICorner",{ CornerRadius=UDim.new(0,8) }, SF)
+            New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, SF)
+            New("UIPadding",{ PaddingTop=UDim.new(0,6), PaddingBottom=UDim.new(0,8), PaddingLeft=UDim.new(0,10), PaddingRight=UDim.new(0,10) }, SF)
+            New("UIListLayout",{ FillDirection=Enum.FillDirection.Vertical, SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,5) }, SF)
+
+            -- Section header row
+            local SH = New("Frame",{ Size=UDim2.new(1,0,0,26), BackgroundTransparency=1, ZIndex=4, LayoutOrder=0 }, SF)
+            local SHL = New("TextLabel",{
+                Size=UDim2.new(1,-30,1,0), BackgroundTransparency=1,
+                Text=sTitle or "Section",
+                TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold,
+                TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5,
+            }, SH)
+            -- Header bottom divider
+            New("Frame",{ Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=5 }, SH)
+
+            Reg(function() SF.BackgroundColor3=Theme.Panel; SHL.TextColor3=Theme.TextPrimary end)
+
+            local _secCollapsed=false; local _secItems={}
+
+            if collapsible then
+                local ColBtn=New("TextButton",{ Size=UDim2.new(0,20,0,20), Position=UDim2.new(1,-22,0.5,-10), BackgroundTransparency=1, Text="", ZIndex=6 }, SH)
+                local ColIco=_makeIconEl(ColBtn,"chevron-down",13,UDim2.new(0,3,0,3),Theme.TextSecondary,7)
+                Reg(function()
+                    if _isAssetId(GetIcon("chevron-down")) then ColIco.ImageColor3=Theme.TextSecondary
+                    else ColIco.TextColor3=Theme.TextSecondary end
+                end)
+                ColBtn.MouseButton1Click:Connect(function()
+                    _secCollapsed=not _secCollapsed
+                    Tween(ColIco,{ Rotation=_secCollapsed and -90 or 0 },0.15)
+                    for _, item in ipairs(_secItems) do
+                        if item and item.Parent then item.Visible=not _secCollapsed end
+                    end
+                end)
+            end
+
+            local SO={}
+            local sord=1
+            local function SNO() sord=sord+1; return sord end
+            local function _track(f) if collapsible then table.insert(_secItems,f) end; return f end
+
+            function SO:Set(t) SHL.Text=t end
+            function SO:Get()  return SHL.Text end
+            function SO:Destroy() SF:Destroy() end
+            function SO:Collapse(state)
+                _secCollapsed = state~=false
+                for _, item in ipairs(_secItems) do
+                    if item and item.Parent then item.Visible=not _secCollapsed end
+                end
+            end
+
+            -- ── Divider ────────────────────────────────────────────
+            function SO:CreateDivider(dcfg)
+                dcfg=dcfg or {}
+                local d=_track(New("Frame",{ Size=UDim2.new(1,0,0,1), BackgroundColor3=dcfg.Color or Theme.Divider, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                Reg(function() d.BackgroundColor3=Theme.Divider end)
+                local dObj={}
+                function dObj:Set(v)
+                    if type(v)=="boolean" then d.Visible=v
+                    elseif typeof(v)=="Color3" then Tween(d,{ BackgroundColor3=v },0.2) end
+                end
+                function dObj:Update(c) Tween(d,{ BackgroundColor3=c },0.2) end
+                function dObj:Destroy() d:Destroy() end
+                return dObj
+            end
+
+            -- ── Label ──────────────────────────────────────────────
+            function SO:CreateLabel(lcfg)
+                lcfg=lcfg or {}
+                local LFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, LFr)
+                Reg(function() LFr.BackgroundColor3=Theme.PanelAlt end)
+                if lcfg.Icon then _makeIconEl(LFr,lcfg.Icon,16,UDim2.new(0,8,0.5,-8),Theme.Accent,5) end
+                local xOff=lcfg.Icon and 30 or 10
+                local TitleL=New("TextLabel",{ Size=UDim2.new(0.45,-xOff,1,0), Position=UDim2.new(0,xOff,0,0), BackgroundTransparency=1, Text=lcfg.Title or lcfg.Name or "Label", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, LFr)
+                local VL=New("TextLabel",{ Size=UDim2.new(0.52,0,1,0), Position=UDim2.new(0.46,0,0,0), BackgroundTransparency=1, Text=tostring(lcfg.Value or ""), TextColor3=lcfg.Color or Theme.Accent, TextSize=11, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Right, TextTruncate=Enum.TextTruncate.AtEnd, ZIndex=5 }, LFr)
+                New("UIPadding",{ PaddingRight=UDim.new(0,8) }, VL)
+                Reg(function() TitleL.TextColor3=Theme.TextPrimary; VL.TextColor3=Theme.Accent end)
+                if lcfg.Tooltip then _makeTooltip(LFr,lcfg.Tooltip,Theme) end
+                _registerSearch(lcfg.Title or lcfg.Name,lcfg.Icon or "info",function()
+                    Activate(); LeftCol.CanvasPosition=Vector2.new(0,math.max(0,LFr.AbsolutePosition.Y-LeftCol.AbsolutePosition.Y))
+                end)
+                local lObj={}
+                function lObj:Set(v)     VL.Text=tostring(v) end
+                function lObj:Get()      return VL.Text end
+                function lObj:SetColor(c) VL.TextColor3=c end
+                return lObj
+            end
+
+            -- ── Button ─────────────────────────────────────────────
+            function SO:CreateButton(bcfg)
+                bcfg=bcfg or {}
+                local isSub=bcfg.Style=="Sub" or bcfg.SubButton==true
+                local isDis=bcfg.Disabled==true
+                local BFr=_track(New("TextButton",{
+                    Size=UDim2.new(1,0,0,bcfg.Description and 48 or 34),
+                    BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt,
+                    BorderSizePixel=0, Text="", ZIndex=4, LayoutOrder=SNO(),
+                }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, BFr)
+                if isSub then New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, BFr) end
+                Reg(function() if BFr.Active~=false then BFr.BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt end end)
+                if bcfg.Icon then _makeIconEl(BFr,bcfg.Icon,16,UDim2.new(0,8,0.5,-8),isSub and Theme.TextSecondary or Theme.Accent,5) end
+                local x=bcfg.Icon and 30 or 10
+                local BTL=New("TextLabel",{ Size=UDim2.new(1,-(x+36),0,18), Position=UDim2.new(0,x,bcfg.Description and 0.15 or 0.5,-9), BackgroundTransparency=1, Text=bcfg.Title or bcfg.Name or "Button", TextColor3=isSub and Theme.TextSecondary or Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, BFr)
+                if bcfg.Description then New("TextLabel",{ Size=UDim2.new(1,-(x+10),0,14), Position=UDim2.new(0,x,0,22), BackgroundTransparency=1, Text=bcfg.Description, TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, BFr) end
+                New("TextLabel",{ Size=UDim2.new(0,18,1,0), Position=UDim2.new(1,-22,0,0), BackgroundTransparency=1, Text=">", TextColor3=Theme.TextSecondary, TextSize=16, Font=Enum.Font.GothamBold, ZIndex=5 }, BFr)
+                if bcfg.Tooltip then _makeTooltip(BFr,bcfg.Tooltip,Theme) end
+                Reg(function() BTL.TextColor3=isSub and Theme.TextSecondary or Theme.TextPrimary end)
+                if isDis then BFr.Active=false; BFr.BackgroundTransparency=0.5; BTL.TextTransparency=0.5 end
+                BFr.MouseEnter:Connect(function()
+                    if BFr.Active==false then return end
+                    Tween(BFr,{ BackgroundColor3=Theme.Divider },0.12)
+                end)
+                BFr.MouseLeave:Connect(function()
+                    if BFr.Active==false then return end
+                    Tween(BFr,{ BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt },0.18)
+                end)
+                BFr.MouseButton1Click:Connect(function()
+                    if BFr.Active==false then return end
+                    Tween(BFr,{ BackgroundColor3=Theme.Accent },0.07); task.wait(0.10)
+                    Tween(BFr,{ BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt },0.22)
+                    task.spawn(bcfg.Callback or function() end)
+                end)
+                _registerSearch(bcfg.Title or bcfg.Name,bcfg.Icon or "plus",function() Activate(); task.spawn(bcfg.Callback or function() end) end)
+                local bObj={ _frame=BFr }
+                function bObj:SetTitle(t) BTL.Text=t end
+                function bObj:SetEnabled(e) BFr.Active=e; Tween(BFr,{ BackgroundTransparency=e and 0 or 0.5 },0.15); BTL.TextTransparency=e and 0 or 0.5 end
+                return bObj
+            end
+
+            -- ── Toggle (Seisen Hub style: title | NONE badge | toggle) ──
+            function SO:CreateToggle(tcfg)
+                tcfg=tcfg or {}
+                local flag=tcfg.Flag or (config.AutoFlags and _genFlag(tcfg) or nil)
+                local cb  =tcfg.Callback or function() end
+                local val =_saved(flag, tcfg.Default or tcfg.CurrentValue or false)
+
+                local TFr=_track(New("Frame",{
+                    Size=UDim2.new(1,0,0,tcfg.Description and 48 or 34),
+                    BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO(),
+                }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, TFr)
+
+                local TTL=New("TextLabel",{ Size=UDim2.new(1,-100,0,18), Position=UDim2.new(0,10,tcfg.Description and 0.15 or 0.5,-9), BackgroundTransparency=1, Text=tcfg.Title or tcfg.Name or "Toggle", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, TFr)
+                if tcfg.Description or tcfg.Info then New("TextLabel",{ Size=UDim2.new(1,-100,0,14), Position=UDim2.new(0,10,0,22), BackgroundTransparency=1, Text=tcfg.Description or tcfg.Info, TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, TFr) end
+                if tcfg.Tooltip then _makeTooltip(TFr,tcfg.Tooltip,Theme) end
+
+                -- "NONE" keybind badge (Seisen Hub style)
+                local KbBadge=New("Frame",{
+                    Size=UDim2.new(0,0,0,18), AutomaticSize=Enum.AutomaticSize.X,
+                    Position=UDim2.new(1,-90,0.5,-9),
+                    BackgroundColor3=Theme.BadgeBg, BorderSizePixel=0, ZIndex=5,
+                })
+                KbBadge.Parent=TFr
+                New("UICorner",{ CornerRadius=UDim.new(0,4) }, KbBadge)
+                New("UIPadding",{ PaddingLeft=UDim.new(0,6), PaddingRight=UDim.new(0,6) }, KbBadge)
+                local KbText=New("TextLabel",{ Size=UDim2.new(0,0,1,0), AutomaticSize=Enum.AutomaticSize.X, BackgroundTransparency=1, Text=tcfg.Keybind or "NONE", TextColor3=Theme.BadgeText, TextSize=9, Font=Enum.Font.GothamBold, ZIndex=6 }, KbBadge)
+                Reg(function() KbBadge.BackgroundColor3=Theme.BadgeBg; KbText.TextColor3=Theme.BadgeText end)
+
+                -- Toggle switch
+                local SBg=New("Frame",{ Size=UDim2.new(0,36,0,18), Position=UDim2.new(1,-44,0.5,-9), BackgroundColor3=val and Theme.ToggleOn or Theme.ToggleOff, BorderSizePixel=0, ZIndex=5 }, TFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,9) }, SBg)
+                local Knob=New("Frame",{ Size=UDim2.new(0,12,0,12), Position=val and UDim2.new(1,-15,0.5,-6) or UDim2.new(0,3,0.5,-6), BackgroundColor3=Color3.new(1,1,1), BorderSizePixel=0, ZIndex=6 }, SBg)
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, Knob)
+
+                Reg(function() TFr.BackgroundColor3=Theme.PanelAlt; TTL.TextColor3=Theme.TextPrimary; SBg.BackgroundColor3=val and Theme.ToggleOn or Theme.ToggleOff end)
+
+                local TogBtn=New("TextButton",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="", ZIndex=7 }, TFr)
+                TogBtn.MouseButton1Click:Connect(function()
+                    val=not val
+                    Tween(SBg,{ BackgroundColor3=val and Theme.ToggleOn or Theme.ToggleOff },0.22,Enum.EasingStyle.Quart)
+                    Tween(Knob,{ Position=val and UDim2.new(1,-15,0.5,-6) or UDim2.new(0,3,0.5,-6) },0.22,Enum.EasingStyle.Back)
+                    if flag then _autoSave(flag,val) end
+                    task.spawn(cb,val)
+                end)
+                _registerSearch(tcfg.Title or tcfg.Name,"check",function()
+                    Activate(); val=not val
+                    Tween(SBg,{ BackgroundColor3=val and Theme.ToggleOn or Theme.ToggleOff },0.22)
+                    Tween(Knob,{ Position=val and UDim2.new(1,-15,0.5,-6) or UDim2.new(0,3,0.5,-6) },0.22)
+                    if flag then _autoSave(flag,val) end
+                    task.spawn(cb,val)
+                end)
+                local tObj={}
+                function tObj:Set(v)
+                    val=v
+                    Tween(SBg,{ BackgroundColor3=v and Theme.ToggleOn or Theme.ToggleOff },0.22)
+                    Tween(Knob,{ Position=v and UDim2.new(1,-15,0.5,-6) or UDim2.new(0,3,0.5,-6) },0.22)
+                    if flag then _autoSave(flag,v) end
+                end
+                function tObj:Get()       return val end
+                function tObj:SetTitle(t) TTL.Text=t end
+                function tObj:SetKeybind(k) KbText.Text=k or "NONE" end
+                if flag then NexusUI.Flags[flag]=tObj end
+                return tObj
+            end
+
+            -- ── Checkbox ───────────────────────────────────────────
+            function SO:CreateCheckbox(ccfg)
+                ccfg=ccfg or {}
+                local flag=ccfg.Flag or (config.AutoFlags and _genFlag(ccfg) or nil)
+                local cb  =ccfg.Callback or function() end
+                local val =_saved(flag, ccfg.Default or ccfg.CurrentValue or false)
+                local CFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,ccfg.Description and 48 or 34), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, CFr)
+                Reg(function() CFr.BackgroundColor3=Theme.PanelAlt end)
+                local CTL=New("TextLabel",{ Size=UDim2.new(1,-56,0,18), Position=UDim2.new(0,10,ccfg.Description and 0.15 or 0.5,-9), BackgroundTransparency=1, Text=ccfg.Title or ccfg.Name or "Checkbox", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, CFr)
+                if ccfg.Description then New("TextLabel",{ Size=UDim2.new(1,-56,0,14), Position=UDim2.new(0,10,0,22), BackgroundTransparency=1, Text=ccfg.Description, TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.Gotham, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, CFr) end
+                if ccfg.Tooltip then _makeTooltip(CFr,ccfg.Tooltip,Theme) end
+                Reg(function() CFr.BackgroundColor3=Theme.PanelAlt; CTL.TextColor3=Theme.TextPrimary end)
+                local CBox=New("Frame",{ Size=UDim2.new(0,18,0,18), Position=UDim2.new(1,-34,0.5,-9), BackgroundColor3=val and Theme.Accent or Theme.Background, BorderSizePixel=0, ZIndex=5 }, CFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,4) }, CBox)
+                local CStroke=New("UIStroke",{ Color=Theme.Accent, Thickness=1.5 }, CBox)
+                Reg(function() CBox.BackgroundColor3=val and Theme.Accent or Theme.Background; CStroke.Color=Theme.Accent end)
+                local Tick=New("TextLabel",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="v", TextColor3=Color3.new(1,1,1), TextSize=11, Font=Enum.Font.GothamBold, ZIndex=6, TextTransparency=val and 0 or 1 }, CBox)
+                local ChkBtn=New("TextButton",{ Size=UDim2.new(1,0,1,0), BackgroundTransparency=1, Text="", ZIndex=7 }, CFr)
+                ChkBtn.MouseButton1Click:Connect(function()
+                    val=not val
+                    Tween(CBox,{ BackgroundColor3=val and Theme.Accent or Theme.Background },0.18)
+                    Tween(Tick,{ TextTransparency=val and 0 or 1 },0.14)
+                    if flag then _autoSave(flag,val) end
+                    task.spawn(cb,val)
+                end)
+                local cbObj={}
+                function cbObj:Set(v) val=v; Tween(CBox,{ BackgroundColor3=v and Theme.Accent or Theme.Background },0.18); Tween(Tick,{ TextTransparency=v and 0 or 1 },0.14); if flag then _autoSave(flag,v) end end
+                function cbObj:Get()       return val end
+                function cbObj:SetTitle(t) CTL.Text=t end
+                if flag then NexusUI.Flags[flag]=cbObj end
+                return cbObj
+            end
+
+            -- ── Slider ─────────────────────────────────────────────
+            function SO:CreateSlider(scfg)
+                scfg=scfg or {}
+                local flag=scfg.Flag or (config.AutoFlags and _genFlag(scfg) or nil)
+                local cb  =scfg.Callback or function() end
+                local rng =scfg.Range or { scfg.Min or 0, scfg.Max or 100 }
+                local sMin=rng[1]; local sMax=rng[2]
+                local suf =scfg.Suffix or ""
+                local inc =scfg.Increment or 1
+                if scfg.Decimals then inc=1/(10^scfg.Decimals) end
+                local dec=0
+                do local s=tostring(inc); local d=s:find("%."); dec=d and (#s-d) or 0 end
+                local val=math.clamp(_saved(flag, scfg.Default or scfg.CurrentValue or sMin), sMin, sMax)
+
+                local SlFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,50), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, SlFr)
+                Reg(function() SlFr.BackgroundColor3=Theme.PanelAlt end)
+                local STL=New("TextLabel",{ Size=UDim2.new(1,-72,0,18), Position=UDim2.new(0,10,0,7), BackgroundTransparency=1, Text=scfg.Title or scfg.Name or "Slider", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, SlFr)
+                local VL3=New("TextLabel",{ Size=UDim2.new(0,60,0,18), Position=UDim2.new(1,-68,0,7), BackgroundTransparency=1, Text=tostring(val)..suf, TextColor3=Theme.Accent, TextSize=11, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Right, ZIndex=5 }, SlFr)
+                Reg(function() STL.TextColor3=Theme.TextPrimary; VL3.TextColor3=Theme.Accent end)
+
+                -- Track (Seisen Hub style: thin, full width)
+                local Trk=New("Frame",{ Size=UDim2.new(1,-20,0,4), Position=UDim2.new(0,10,0,34), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=5 }, SlFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,2) }, Trk)
+                Reg(function() Trk.BackgroundColor3=Theme.Divider end)
+                local p0=(val-sMin)/(sMax-sMin)
+                local Fill=New("Frame",{ Size=UDim2.new(p0,0,1,0), BackgroundColor3=Theme.Accent, BorderSizePixel=0, ZIndex=6 }, Trk)
+                New("UICorner",{ CornerRadius=UDim.new(0,2) }, Fill)
+                Reg(function() Fill.BackgroundColor3=Theme.Accent end)
+                local Thumb=New("Frame",{ Size=UDim2.new(0,12,0,12), AnchorPoint=Vector2.new(0.5,0.5), Position=UDim2.new(p0,0,0.5,0), BackgroundColor3=Color3.new(1,1,1), BorderSizePixel=0, ZIndex=7 }, Trk)
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, Thumb)
+                local ThStroke=New("UIStroke",{ Color=Theme.Accent, Thickness=2 }, Thumb)
+                Reg(function() ThStroke.Color=Theme.Accent end)
+                if scfg.Tooltip then _makeTooltip(SlFr,scfg.Tooltip,Theme) end
+
+                local dragging=false; local mc=nil
+                local hit=New("TextButton",{ Size=UDim2.new(1,0,0,50), BackgroundTransparency=1, Text="", ZIndex=8 }, SlFr)
+
+                local function Round(n,d) local m=10^d; return math.floor(n*m+0.5)/m end
+                local function Snap(v) return math.clamp(Round(math.floor((v-sMin)/inc+0.5)*inc+sMin,dec),sMin,sMax) end
+                local function SetVal(v,fire)
+                    val=Snap(v); local p=(val-sMin)/(sMax-sMin)
+                    Tween(Fill,{ Size=UDim2.new(p,0,1,0) },0.05)
+                    Tween(Thumb,{ Position=UDim2.new(p,0,0.5,0) },0.05)
+                    VL3.Text=tostring(val)..suf
+                    if fire~=false then if flag then _autoSave(flag,val) end; task.spawn(cb,val) end
+                end
+
+                local function OpenType()
+                    if SlFr:FindFirstChild("__typeOv") then return end
+                    local ov=New("Frame",{ Name="__typeOv", Size=UDim2.new(0,88,0,26), Position=UDim2.new(0.5,-44,0,7), BackgroundColor3=Theme.Panel, BorderSizePixel=0, ZIndex=20 }, SlFr)
+                    New("UICorner",{ CornerRadius=UDim.new(0,6) }, ov)
+                    New("UIStroke",{ Color=Theme.Accent, Thickness=1 }, ov)
+                    local tb2=New("TextBox",{ Size=UDim2.new(1,-14,1,-4), Position=UDim2.new(0,7,0,2), BackgroundTransparency=1, Text=tostring(val), TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, ZIndex=21, ClearTextOnFocus=false }, ov)
+                    tb2:CaptureFocus()
+                    tb2.FocusLost:Connect(function()
+                        local n=tonumber(tb2.Text); if n then SetVal(n) end
+                        ov:Destroy()
+                    end)
+                end
+
+                hit.InputBegan:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 then
+                        if UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl) then OpenType()
+                        else
+                            dragging=true
+                            Tween(Thumb,{ Size=UDim2.new(0,15,0,15) },0.1,Enum.EasingStyle.Back)
+                            if mc then mc:Disconnect() end
+                            mc=UIS.InputChanged:Connect(function(inp)
+                                if not dragging then return end
+                                if inp.UserInputType==Enum.UserInputType.MouseMovement then
+                                    local p2=math.clamp((inp.Position.X-Trk.AbsolutePosition.X)/Trk.AbsoluteSize.X,0,1)
+                                    SetVal(sMin+p2*(sMax-sMin))
+                                end
+                            end)
+                        end
+                    end
+                end)
+                hit.InputEnded:Connect(function(i)
+                    if i.UserInputType==Enum.UserInputType.MouseButton1 and dragging then
+                        dragging=false
+                        Tween(Thumb,{ Size=UDim2.new(0,12,0,12) },0.1)
+                        if mc then mc:Disconnect(); mc=nil end
+                    end
+                end)
+                SlFr.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton2 then OpenType() end end)
+
+                _registerSearch(scfg.Title or scfg.Name,"minus",function() Activate() end)
+                local sObj={}
+                function sObj:Set(v) SetVal(v,false) end
+                function sObj:Get()  return val end
+                if flag then NexusUI.Flags[flag]=sObj end
+                return sObj
+            end
+
+            -- ── Dropdown (Seisen Hub style: full width selector) ────
+            function SO:CreateDropdown(dcfg)
+                dcfg=dcfg or {}
+                local flag         =dcfg.Flag or (config.AutoFlags and _genFlag(dcfg) or nil)
+                local cb           =dcfg.Callback or function() end
+                local opts         =dcfg.Options or {}
+                local multi        =dcfg.MultiSelect or dcfg.MultipleOptions or false
+                local isDisabled   =dcfg.Disabled==true
+                local disabledOpts =dcfg.DisabledOptions or {}
+                local displayFmt   =dcfg.DisplayFormat
+                local defVal       =dcfg.Default or dcfg.CurrentOption
+                if multi and defVal and type(defVal)~="table" then defVal={defVal} end
+                local val      =_saved(flag,defVal or (multi and {} or opts[1]))
+                local open     =false
+                local selected =multi and (type(val)=="table" and val or {}) or nil
+                local SEARCH_THRESH=8
+
+                local function _fmt(opt) if displayFmt then return displayFmt(opt) end; return tostring(opt) end
+                local function _isDO(o) for _,dv in ipairs(disabledOpts) do if dv==o then return true end end; return false end
+
+                -- Full-width dropdown container (Seisen Hub style)
+                local DFr=_track(New("Frame",{
+                    Size=UDim2.new(1,0,0,dcfg.Title and 60 or 36),
+                    BackgroundColor3=Theme.PanelAlt,
+                    BorderSizePixel=0, ZIndex=4, ClipsDescendants=false, LayoutOrder=SNO(),
+                }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, DFr)
+                if isDisabled then DFr.BackgroundTransparency=0.4 end
+                Reg(function() if not isDisabled then DFr.BackgroundColor3=Theme.PanelAlt end end)
+
+                -- Label above if Title provided (Seisen Hub shows label above selector)
+                local labelY=0
+                if dcfg.Title or dcfg.Name then
+                    New("TextLabel",{ Size=UDim2.new(1,-16,0,16), Position=UDim2.new(0,10,0,8), BackgroundTransparency=1, Text=dcfg.Title or dcfg.Name, TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, DFr)
+                    labelY=24
+                end
+                if dcfg.Tooltip then _makeTooltip(DFr,dcfg.Tooltip,Theme) end
+
+                -- Full-width selector button (Seisen Hub style)
+                local displayText=multi and (#selected>0 and table.concat(selected,", ") or "---") or (val and _fmt(val) or "---")
+                local SelBtn=New("TextButton",{
+                    Size=UDim2.new(1,-16,0,24),
+                    Position=UDim2.new(0,8,0,labelY+6),
+                    BackgroundColor3=Theme.Background,
+                    Text=displayText, TextColor3=isDisabled and Theme.TextSecondary or Theme.TextPrimary,
+                    TextSize=11, Font=Enum.Font.Gotham,
+                    TextTruncate=Enum.TextTruncate.AtEnd,
+                    TextXAlignment=Enum.TextXAlignment.Left,
+                    ZIndex=6, Active=not isDisabled,
+                }, DFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,5) }, SelBtn)
+                New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, SelBtn)
+                New("UIPadding",{ PaddingLeft=UDim.new(0,8), PaddingRight=UDim.new(0,24) }, SelBtn)
+                -- Chevron icon on right of SelBtn
+                local ChevIco=_makeIconEl(SelBtn,"chevron-down",12,UDim2.new(1,-18,0.5,-6),Theme.TextSecondary,7)
+                Reg(function()
+                    SelBtn.BackgroundColor3=Theme.Background
+                    SelBtn.TextColor3=isDisabled and Theme.TextSecondary or Theme.TextPrimary
+                    if _isAssetId(GetIcon("chevron-down")) then ChevIco.ImageColor3=Theme.TextSecondary
+                    else ChevIco.TextColor3=Theme.TextSecondary end
+                end)
+
+                if isDisabled then return { Set=function() end, Get=function() return val end } end
+
+                local useSearch  =#opts>=SEARCH_THRESH
+                local searchBarH =useSearch and 30 or 0
+                local maxVis     =math.min(#opts,5)
+
+                local DDL=New("Frame",{
+                    Size=UDim2.new(0,0,0,maxVis*26+6+searchBarH),
+                    BackgroundColor3=Theme.Panel,
+                    BorderSizePixel=0, Visible=false, ZIndex=100, ClipsDescendants=true,
+                }, SG)
+                New("UICorner",{ CornerRadius=UDim.new(0,7) }, DDL)
+                New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, DDL)
+                Reg(function() DDL.BackgroundColor3=Theme.Panel end)
+                local DDLScale=New("UIScale",{ Scale=0.95 }, DDL)
+
+                local SearchBox=nil
+                if useSearch then
+                    local SBFr=New("Frame",{ Size=UDim2.new(1,0,0,searchBarH), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=21 }, DDL)
+                    SearchBox=New("TextBox",{ Size=UDim2.new(1,-18,0,18), Position=UDim2.new(0,9,0,6), BackgroundTransparency=1, Text="", PlaceholderText="Search...", TextColor3=Theme.TextPrimary, PlaceholderColor3=Theme.TextSecondary, TextSize=11, Font=Enum.Font.Gotham, ZIndex=22, ClearTextOnFocus=false }, SBFr)
+                    New("Frame",{ Size=UDim2.new(1,0,0,1), Position=UDim2.new(0,0,1,-1), BackgroundColor3=Theme.Divider, ZIndex=22 }, SBFr)
+                end
+
+                local DDS=New("ScrollingFrame",{ Size=UDim2.new(1,0,1,-searchBarH), Position=UDim2.new(0,0,0,searchBarH), BackgroundTransparency=1, ScrollBarThickness=2, ZIndex=21, CanvasSize=UDim2.new(0,0,0,#opts*26) }, DDL)
+                New("UIListLayout",{ SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,0) }, DDS)
+                New("UIPadding",{ PaddingTop=UDim.new(0,3), PaddingBottom=UDim.new(0,3) }, DDS)
+
+                local optBtns={}
+
+                local function isSelected(o)
+                    if multi then for _,v2 in ipairs(selected) do if v2==o then return true end end; return false end
+                    return val==o
+                end
+                local function updateDisplay()
+                    if multi then SelBtn.Text=#selected>0 and table.concat(selected,", ") or "---"
+                    else SelBtn.Text=val and _fmt(val) or "---" end
+                end
+
+                for _, opt in ipairs(opts) do
+                    local sel=isSelected(opt); local disOpt=_isDO(opt)
+                    local OB=New("TextButton",{ Size=UDim2.new(1,0,0,26), BackgroundTransparency=sel and 0.8 or 1, BackgroundColor3=Theme.Accent, Text=(multi and (sel and "+ " or "  ") or "")..(_fmt(opt)), TextColor3=disOpt and Theme.TextSecondary or (sel and Theme.TextPrimary or Theme.TextSecondary), TextSize=11, Font=Enum.Font.Gotham, ZIndex=22, Active=not disOpt }, DDS)
+                    New("UIPadding",{ PaddingLeft=UDim.new(0,10) }, OB)
+                    if disOpt then OB.TextTransparency=0.5 end
+                    optBtns[opt]=OB
+                    OB.MouseEnter:Connect(function() if not disOpt then Tween(OB,{ BackgroundTransparency=0.85, TextColor3=Theme.TextPrimary },0.1) end end)
+                    OB.MouseLeave:Connect(function() if not disOpt then Tween(OB,{ BackgroundTransparency=isSelected(opt) and 0.8 or 1, TextColor3=isSelected(opt) and Theme.TextPrimary or Theme.TextSecondary },0.1) end end)
+                    OB.MouseButton1Click:Connect(function()
+                        if disOpt then return end
+                        if multi then
+                            local found=false
+                            for i,v2 in ipairs(selected) do if v2==opt then table.remove(selected,i); found=true; break end end
+                            if not found then table.insert(selected,opt) end
+                            local s=isSelected(opt); OB.Text=(s and "+ " or "  ")..(_fmt(opt))
+                            Tween(OB,{ BackgroundTransparency=s and 0.8 or 1, TextColor3=s and Theme.TextPrimary or Theme.TextSecondary },0.1)
+                            if flag then _autoSave(flag,selected) end
+                            task.spawn(cb,selected)
+                        else
+                            val=opt
+                            for o2,b2 in pairs(optBtns) do Tween(b2,{ BackgroundTransparency=o2==opt and 0.8 or 1, TextColor3=o2==opt and Theme.TextPrimary or Theme.TextSecondary },0.1) end
+                            DDL.Visible=false; open=false
+                            if SearchBox then SearchBox.Text="" end
+                            if flag then _autoSave(flag,val) end
+                            task.spawn(cb,opt)
+                        end
+                        updateDisplay()
+                    end)
+                end
+
+                if SearchBox then
+                    SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+                        local q=SearchBox.Text:lower(); local vc=0
+                        for opt,b2 in pairs(optBtns) do
+                            local show=q=="" or tostring(opt):lower():find(q,1,true)~=nil
+                            b2.Visible=show; if show then vc=vc+1 end
+                        end
+                        DDS.CanvasSize=UDim2.new(0,0,0,vc*26)
+                    end)
+                end
+
+                local _coc
+                local function _closeDrop()
+                    open=false
+                    Tween(DDLScale,{ Scale=0.92 },0.14)
+                    Tween(DDL,{ BackgroundTransparency=0.3 },0.12)
+                    task.wait(0.15); DDL.Visible=false; DDL.BackgroundTransparency=0
+                    if SearchBox then SearchBox.Text="" end
+                    if _coc then _coc:Disconnect(); _coc=nil end
+                end
+
+                SelBtn.MouseButton1Click:Connect(function()
+                    open=not open
+                    if open then
+                        local abs=SelBtn.AbsolutePosition; local sz=SelBtn.AbsoluteSize
+                        local dW=math.max(sz.X,140)
+                        DDL.Size=UDim2.new(0,dW,0,maxVis*26+6+searchBarH)
+                        DDL.Position=UDim2.new(0,abs.X,0,abs.Y+sz.Y+4)
+                        DDLScale.Scale=0.92; DDL.BackgroundTransparency=0.3
+                        Tween(DDLScale,{ Scale=1 },0.20,Enum.EasingStyle.Back)
+                        Tween(DDL,{ BackgroundTransparency=0 },0.16)
+                        DDL.Visible=true
+                        if SearchBox then task.defer(function() SearchBox:CaptureFocus() end) end
+                        _coc=UIS.InputBegan:Connect(function(i)
+                            if i.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+                            local mp=i.Position
+                            local ap=DDL.AbsolutePosition; local as=DDL.AbsoluteSize
+                            local vp=SelBtn.AbsolutePosition; local vs=SelBtn.AbsoluteSize
+                            if not (mp.X>=ap.X and mp.X<=ap.X+as.X and mp.Y>=ap.Y and mp.Y<=ap.Y+as.Y)
+                            and not (mp.X>=vp.X and mp.X<=vp.X+vs.X and mp.Y>=vp.Y and mp.Y<=vp.Y+vs.Y) then
+                                task.spawn(_closeDrop)
+                            end
+                        end)
+                    else
+                        task.spawn(_closeDrop)
+                    end
+                end)
+
+                _registerSearch(dcfg.Title or dcfg.Name,"list",function() Activate() end)
+                local dObj={}
+                function dObj:Set(v)
+                    if multi then selected=type(v)=="table" and v or {v} else val=v end
+                    updateDisplay()
+                    for o2,b2 in pairs(optBtns) do
+                        local s=isSelected(o2); b2.Text=(multi and (s and "+ " or "  ") or "")..(_fmt(o2))
+                        Tween(b2,{ BackgroundTransparency=s and 0.8 or 1, TextColor3=s and Theme.TextPrimary or Theme.TextSecondary },0.1)
+                    end
+                end
+                function dObj:Get() return multi and selected or val end
+                function dObj:Refresh(newOpts)
+                    opts=newOpts
+                    for _,b2 in pairs(optBtns) do b2:Destroy() end
+                    optBtns={}
+                    for _,opt in ipairs(newOpts) do
+                        local sel2=isSelected(opt); local disOpt2=_isDO(opt)
+                        local OB2=New("TextButton",{ Size=UDim2.new(1,0,0,26), BackgroundTransparency=sel2 and 0.8 or 1, BackgroundColor3=Theme.Accent, Text=(multi and (sel2 and "+ " or "  ") or "")..(_fmt(opt)), TextColor3=disOpt2 and Theme.TextSecondary or (sel2 and Theme.TextPrimary or Theme.TextSecondary), TextSize=11, Font=Enum.Font.Gotham, ZIndex=22, Active=not disOpt2 }, DDS)
+                        New("UIPadding",{ PaddingLeft=UDim.new(0,10) }, OB2)
+                        optBtns[opt]=OB2
+                        OB2.MouseEnter:Connect(function() if not disOpt2 then Tween(OB2,{ BackgroundTransparency=0.85, TextColor3=Theme.TextPrimary },0.1) end end)
+                        OB2.MouseLeave:Connect(function() if not disOpt2 then Tween(OB2,{ BackgroundTransparency=isSelected(opt) and 0.8 or 1, TextColor3=isSelected(opt) and Theme.TextPrimary or Theme.TextSecondary },0.1) end end)
+                        OB2.MouseButton1Click:Connect(function()
+                            if disOpt2 then return end
+                            if not multi then val=opt; for o2,b2 in pairs(optBtns) do Tween(b2,{ BackgroundTransparency=o2==opt and 0.8 or 1, TextColor3=o2==opt and Theme.TextPrimary or Theme.TextSecondary },0.1) end; task.spawn(_closeDrop); if flag then _autoSave(flag,val) end; task.spawn(cb,opt); updateDisplay() end
+                        end)
+                    end
+                    DDS.CanvasSize=UDim2.new(0,0,0,#newOpts*26)
+                    DDL.Size=UDim2.new(0,DDL.AbsoluteSize.X,0,math.min(#newOpts,5)*26+6+searchBarH)
+                end
+                if flag then NexusUI.Flags[flag]=dObj end
+                return dObj
+            end
+
+            -- ── Color Picker ────────────────────────────────────────
+            function SO:CreateColorPicker(ccfg)
+                ccfg=ccfg or {}
+                local flag=ccfg.Flag or (config.AutoFlags and _genFlag(ccfg) or nil)
+                local cb  =ccfg.Callback or function() end
+                local cpv =_saved(flag, ccfg.Default or ccfg.Color or Color3.fromRGB(255,100,100))
+                local expanded=false; local COLL,EXPA=34,164
+
+                local CPFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,COLL), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, ClipsDescendants=true, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, CPFr)
+                Reg(function() CPFr.BackgroundColor3=Theme.PanelAlt end)
+                local CPT=New("TextLabel",{ Size=UDim2.new(1,-56,0,COLL), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Text=ccfg.Title or ccfg.Name or "Color", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, CPFr)
+                Reg(function() CPT.TextColor3=Theme.TextPrimary end)
+                local Prev=New("TextButton",{ Size=UDim2.new(0,26,0,18), Position=UDim2.new(1,-34,0.5,-9), BackgroundColor3=cpv, BorderSizePixel=0, Text="", ZIndex=5 }, CPFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,4) }, Prev)
+                New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, Prev)
+                local EP=New("Frame",{ Size=UDim2.new(1,-18,0,118), Position=UDim2.new(0,9,0,40), BackgroundTransparency=1, ZIndex=5 }, CPFr)
+                local chs={ {"R",Color3.fromRGB(220,60,60)},{"G",Color3.fromRGB(60,200,60)},{"B",Color3.fromRGB(60,100,220)} }
+                local vals={ math.floor(cpv.R*255), math.floor(cpv.G*255), math.floor(cpv.B*255) }
+                for i,ch in ipairs(chs) do
+                    local y=(i-1)*35
+                    New("TextLabel",{ Size=UDim2.new(0,12,0,18), Position=UDim2.new(0,0,0,y+8), BackgroundTransparency=1, Text=ch[1], TextColor3=ch[2], TextSize=10, Font=Enum.Font.GothamBold, ZIndex=6 }, EP)
+                    local chT=New("Frame",{ Size=UDim2.new(1,-44,0,4), Position=UDim2.new(0,18,0,y+15), BackgroundColor3=Theme.Divider, ZIndex=6 }, EP)
+                    New("UICorner",{ CornerRadius=UDim.new(0,2) }, chT)
+                    local chF=New("Frame",{ Size=UDim2.new(vals[i]/255,0,1,0), BackgroundColor3=ch[2], ZIndex=7 }, chT)
+                    New("UICorner",{ CornerRadius=UDim.new(0,2) }, chF)
+                    local chV=New("TextLabel",{ Size=UDim2.new(0,26,0,18), Position=UDim2.new(1,-26,0,y+7), BackgroundTransparency=1, Text=tostring(vals[i]), TextColor3=Theme.TextSecondary, TextSize=10, Font=Enum.Font.Gotham, ZIndex=6 }, EP)
+                    local drag=false; local chmc=nil
+                    local hb=New("TextButton",{ Size=UDim2.new(1,-44,0,20), Position=UDim2.new(0,18,0,y+7), BackgroundTransparency=1, Text="", ZIndex=8 }, EP)
+                    hb.InputBegan:Connect(function(inp)
+                        if inp.UserInputType==Enum.UserInputType.MouseButton1 then
+                            drag=true; if chmc then chmc:Disconnect() end
+                            chmc=UIS.InputChanged:Connect(function(inp2)
+                                if not drag then return end
+                                if inp2.UserInputType==Enum.UserInputType.MouseMovement then
+                                    local p2=math.clamp((inp2.Position.X-chT.AbsolutePosition.X)/chT.AbsoluteSize.X,0,1)
+                                    vals[i]=math.floor(p2*255); Tween(chF,{ Size=UDim2.new(p2,0,1,0) },0.04)
+                                    chV.Text=tostring(vals[i]); cpv=Color3.fromRGB(vals[1],vals[2],vals[3])
+                                    Tween(Prev,{ BackgroundColor3=cpv },0.04)
+                                    if flag then _autoSave(flag,cpv) end; task.spawn(cb,cpv)
+                                end
+                            end)
+                        end
+                    end)
+                    hb.InputEnded:Connect(function(inp) if inp.UserInputType==Enum.UserInputType.MouseButton1 then drag=false; if chmc then chmc:Disconnect(); chmc=nil end end end)
+                end
+                Prev.MouseButton1Click:Connect(function()
+                    expanded=not expanded
+                    Tween(CPFr,{ Size=UDim2.new(1,0,0,expanded and EXPA or COLL) },0.28,Enum.EasingStyle.Back)
+                end)
+                _registerSearch(ccfg.Title or ccfg.Name,"paint",function() Activate() end)
+                local cpObj={}
+                function cpObj:Set(col) cpv=col; vals={math.floor(col.R*255),math.floor(col.G*255),math.floor(col.B*255)}; Tween(Prev,{ BackgroundColor3=col },0.14) end
+                function cpObj:Get()    return cpv end
+                if flag then NexusUI.Flags[flag]=cpObj end
+                return cpObj
+            end
+
+            -- ── Input ──────────────────────────────────────────────
+            function SO:CreateInput(icfg)
+                icfg=icfg or {}
+                local flag=icfg.Flag or (config.AutoFlags and _genFlag(icfg) or nil)
+                local cb  =icfg.Callback or function() end
+                local val =tostring(_saved(flag, icfg.Default or ""))
+
+                local IFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, IFr)
+                Reg(function() IFr.BackgroundColor3=Theme.PanelAlt end)
+                local ITL=New("TextLabel",{ Size=UDim2.new(0.4,0,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Text=icfg.Title or icfg.Name or "Input", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, IFr)
+                Reg(function() ITL.TextColor3=Theme.TextPrimary end)
+                if icfg.Tooltip then _makeTooltip(IFr,icfg.Tooltip,Theme) end
+                local IB=New("TextBox",{ Size=UDim2.new(0.56,0,0,22), Position=UDim2.new(0.42,0,0.5,-11), BackgroundColor3=Theme.Background, Text=val, PlaceholderText=icfg.Placeholder or icfg.PlaceholderText or "Type here...", TextColor3=Theme.TextPrimary, PlaceholderColor3=Theme.TextSecondary, TextSize=11, Font=Enum.Font.Gotham, ZIndex=5, ClearTextOnFocus=false }, IFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,5) }, IB)
+                New("UIPadding",{ PaddingLeft=UDim.new(0,7), PaddingRight=UDim.new(0,7) }, IB)
+                Reg(function() IB.BackgroundColor3=Theme.Background; IB.TextColor3=Theme.TextPrimary; IB.PlaceholderColor3=Theme.TextSecondary end)
+                if icfg.NumbersOnly then
+                    IB:GetPropertyChangedSignal("Text"):Connect(function()
+                        local cl=IB.Text:gsub("[^%d%.%-]",""); if cl~=IB.Text then IB.Text=cl end
+                    end)
+                end
+                local _stk=nil
+                IB.Focused:Connect(function() Tween(IB,{ BackgroundColor3=Theme.Panel },0.12); if not _stk then _stk=New("UIStroke",{ Color=Theme.Accent, Thickness=1, Parent=IB }) end end)
+                IB.FocusLost:Connect(function(enter)
+                    Tween(IB,{ BackgroundColor3=Theme.Background },0.12); if _stk then _stk:Destroy(); _stk=nil end
+                    if icfg.RemoveTextAfterFocusLost then
+                        local t2=IB.Text; IB.Text=""; if flag then _autoSave(flag,t2) end; task.spawn(cb,t2)
+                    elseif icfg.FireOnChange or (icfg.OnEnter and enter) or enter then
+                        if flag then _autoSave(flag,IB.Text) end; task.spawn(cb,IB.Text)
+                    end
+                end)
+                if icfg.FireOnChange then IB:GetPropertyChangedSignal("Text"):Connect(function() if not icfg.NumbersOnly then task.spawn(cb,IB.Text) end end) end
+                _registerSearch(icfg.Title or icfg.Name,"edit",function() Activate(); IB:CaptureFocus() end)
+                local iObj={}
+                function iObj:Set(v) IB.Text=tostring(v) end
+                function iObj:Get()  return IB.Text end
+                if flag then NexusUI.Flags[flag]=iObj end
+                return iObj
+            end
+
+            -- ── Keybind ────────────────────────────────────────────
+            function SO:CreateKeybind(kcfg)
+                kcfg=kcfg or {}
+                local flag       =kcfg.Flag or (config.AutoFlags and _genFlag(kcfg) or nil)
+                local cb         =kcfg.Callback or function() end
+                local defKey     =kcfg.Default or kcfg.CurrentKeybind or Enum.KeyCode.Unknown
+                local defMod     =kcfg.Modifier
+                local allowMouse =kcfg.AllowMouseButtons~=false
+                local val        =_saved(flag, defKey)
+                local modVal     =defMod
+                local binding    =false
+                local _isMB      =false
+
+                local KFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, KFr)
+                Reg(function() KFr.BackgroundColor3=Theme.PanelAlt end)
+                local KTL=New("TextLabel",{ Size=UDim2.new(1,-110,1,0), Position=UDim2.new(0,10,0,0), BackgroundTransparency=1, Text=kcfg.Title or kcfg.Name or "Keybind", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, KFr)
+                Reg(function() KTL.TextColor3=Theme.TextPrimary end)
+                if kcfg.Tooltip then _makeTooltip(KFr,kcfg.Tooltip,Theme) end
+
+                local function GKD()
+                    if _isMB then return tostring(val) end
+                    if typeof(val)=="EnumItem" and val.EnumType==Enum.UserInputType then return _mouseButtonNames[val] or val.Name end
+                    local kn=typeof(val)=="EnumItem" and val.Name or tostring(val)
+                    if modVal then return (typeof(modVal)=="EnumItem" and modVal.Name or tostring(modVal)):gsub("Left","L"):gsub("Right","R").."+"..kn end
+                    return kn
+                end
+
+                local KB2=New("TextButton",{ Size=UDim2.new(0,90,0,22), Position=UDim2.new(1,-98,0.5,-11), BackgroundColor3=Theme.Background, Text=GKD(), TextColor3=Theme.Accent, TextSize=10, Font=Enum.Font.GothamBold, ZIndex=5, TextTruncate=Enum.TextTruncate.AtEnd }, KFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,5) }, KB2)
+                New("UIPadding",{ PaddingLeft=UDim.new(0,4), PaddingRight=UDim.new(0,4) }, KB2)
+                Reg(function() KB2.BackgroundColor3=Theme.Background; KB2.TextColor3=Theme.Accent end)
+
+                local _kbc=nil
+                KB2.MouseButton1Click:Connect(function()
+                    if binding then return end
+                    binding=true; KB2.Text="[ ... ]"; KB2.TextColor3=Theme.AccentAlt
+                    local pressMods={}
+                    if _kbc then _kbc:Disconnect() end
+                    _kbc=UIS.InputBegan:Connect(function(i,gpe)
+                        if gpe then return end
+                        if allowMouse and (i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.MouseButton2 or i.UserInputType==Enum.UserInputType.MouseButton3) then
+                            local mbn=_mouseButtonNames[i.UserInputType] or "MB?"
+                            val=mbn; modVal=nil; _isMB=true
+                            KB2.Text=mbn; KB2.TextColor3=Theme.Accent; binding=false
+                            if _kbc then _kbc:Disconnect(); _kbc=nil end
+                            if flag then _autoSave(flag,mbn) end
+                            task.spawn(cb,mbn,nil); return
+                        end
+                        if i.UserInputType==Enum.UserInputType.Keyboard then
+                            local isMK=i.KeyCode==Enum.KeyCode.LeftControl or i.KeyCode==Enum.KeyCode.RightControl or i.KeyCode==Enum.KeyCode.LeftShift or i.KeyCode==Enum.KeyCode.RightShift or i.KeyCode==Enum.KeyCode.LeftAlt or i.KeyCode==Enum.KeyCode.RightAlt
+                            if isMK then table.insert(pressMods,i.KeyCode)
+                            else
+                                val=i.KeyCode; modVal=#pressMods>0 and pressMods[1] or nil; _isMB=false
+                                KB2.Text=GKD(); KB2.TextColor3=Theme.Accent; binding=false
+                                if _kbc then _kbc:Disconnect(); _kbc=nil end
+                                if flag then _autoSave(flag,tostring(val.Name)) end
+                                task.spawn(cb,val,modVal)
+                            end
+                        end
+                    end)
+                end)
+
+                if kcfg.ActivateOnPress then
+                    UIS.InputBegan:Connect(function(i,gpe)
+                        if gpe or binding or UIS:GetFocusedTextBox() then return end
+                        if _isMB then
+                            local mbn=_mouseButtonNames[i.UserInputType]
+                            if mbn and mbn==val then task.spawn(kcfg.ActivateOnPress) end
+                        elseif i.KeyCode==val then
+                            if modVal then if UIS:IsKeyDown(modVal) then task.spawn(kcfg.ActivateOnPress) end
+                            else task.spawn(kcfg.ActivateOnPress) end
+                        end
+                    end)
+                end
+
+                _registerSearch(kcfg.Title or kcfg.Name,"key",function() Activate() end)
+                local kObj={}
+                function kObj:Set(k,mod)
+                    if type(k)=="string" and k:sub(1,2)=="MB" then val=k; _isMB=true; modVal=nil
+                    else val=k; modVal=mod; _isMB=false end
+                    KB2.Text=GKD()
+                end
+                function kObj:Get() return val,modVal end
+                if flag then NexusUI.Flags[flag]=kObj end
+                return kObj
+            end
+
+            -- ── Progress Bar ───────────────────────────────────────
+            function SO:CreateProgressBar(pbcfg)
+                pbcfg=pbcfg or {}
+                local pVal=math.clamp(pbcfg.Value or pbcfg.Default or 0, 0, 100)
+                local PFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,46), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, PFr)
+                Reg(function() PFr.BackgroundColor3=Theme.PanelAlt end)
+                local PTL=New("TextLabel",{ Size=UDim2.new(1,-60,0,16), Position=UDim2.new(0,10,0,6), BackgroundTransparency=1, Text=pbcfg.Title or pbcfg.Name or "Progress", TextColor3=Theme.TextPrimary, TextSize=12, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, PFr)
+                local PVL=New("TextLabel",{ Size=UDim2.new(0,50,0,16), Position=UDim2.new(1,-58,0,6), BackgroundTransparency=1, Text=tostring(math.floor(pVal)).."%", TextColor3=Theme.Accent, TextSize=11, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Right, ZIndex=5 }, PFr)
+                Reg(function() PTL.TextColor3=Theme.TextPrimary; PVL.TextColor3=Theme.Accent end)
+                local PTrk=New("Frame",{ Size=UDim2.new(1,-18,0,4), Position=UDim2.new(0,9,0,30), BackgroundColor3=Theme.Divider, BorderSizePixel=0, ZIndex=5 }, PFr)
+                New("UICorner",{ CornerRadius=UDim.new(0,2) }, PTrk)
+                Reg(function() PTrk.BackgroundColor3=Theme.Divider end)
+                local PFill=New("Frame",{ Size=UDim2.new(pVal/100,0,1,0), BackgroundColor3=Theme.Accent, BorderSizePixel=0, ZIndex=6 }, PTrk)
+                New("UICorner",{ CornerRadius=UDim.new(0,2) }, PFill)
+                Reg(function() PFill.BackgroundColor3=Theme.Accent end)
+                if pbcfg.Animated and pVal>0 then
+                    PFill.Size=UDim2.new(0,0,1,0)
+                    Tween(PFill,{ Size=UDim2.new(pVal/100,0,1,0) },0.8,Enum.EasingStyle.Quart)
+                end
+                local pbObj={}
+                function pbObj:Set(v)
+                    pVal=math.clamp(v,0,100); PVL.Text=tostring(math.floor(pVal)).."%"
+                    Tween(PFill,{ Size=UDim2.new(pVal/100,0,1,0) },0.35,Enum.EasingStyle.Quart)
+                end
+                function pbObj:Get() return pVal end
+                function pbObj:SetTitle(t) PTL.Text=t end
+                return pbObj
+            end
+
+            -- ── Multi-Button Row ───────────────────────────────────
+            function SO:CreateMultiButton(mbcfg)
+                mbcfg=mbcfg or {}
+                local btns=mbcfg.Buttons or {}
+                local MBFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,34), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, MBFr)
+                Reg(function() MBFr.BackgroundColor3=Theme.PanelAlt end)
+                New("UIListLayout",{ FillDirection=Enum.FillDirection.Horizontal, HorizontalAlignment=Enum.HorizontalAlignment.Center, VerticalAlignment=Enum.VerticalAlignment.Center, SortOrder=Enum.SortOrder.LayoutOrder, Padding=UDim.new(0,5) }, MBFr)
+                New("UIPadding",{ PaddingLeft=UDim.new(0,7), PaddingRight=UDim.new(0,7) }, MBFr)
+                for i,b in ipairs(btns) do
+                    local isSub=b.Style=="Sub"
+                    local BB=New("TextButton",{ Size=UDim2.new(1/#btns,-7,0,22), BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt, Text=b.Title or "Btn", TextColor3=isSub and Theme.TextSecondary or Theme.TextPrimary, TextSize=11, Font=Enum.Font.GothamBold, ZIndex=5, LayoutOrder=i }, MBFr)
+                    New("UICorner",{ CornerRadius=UDim.new(0,5) }, BB)
+                    if isSub then New("UIStroke",{ Color=Theme.Divider, Thickness=1 }, BB) end
+                    Reg(function() BB.BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt; BB.TextColor3=isSub and Theme.TextSecondary or Theme.TextPrimary end)
+                    BB.MouseEnter:Connect(function() Tween(BB,{ BackgroundColor3=Theme.Divider },0.12) end)
+                    BB.MouseLeave:Connect(function() Tween(BB,{ BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt },0.18) end)
+                    BB.MouseButton1Click:Connect(function()
+                        Tween(BB,{ BackgroundColor3=Theme.Accent },0.06); task.wait(0.1)
+                        Tween(BB,{ BackgroundColor3=isSub and Theme.Background or Theme.PanelAlt },0.2)
+                        task.spawn(b.Callback or function() end)
+                    end)
+                end
+            end
+
+            -- ── Image ──────────────────────────────────────────────
+            function SO:CreateImage(icfg)
+                icfg=icfg or {}
+                local imgH=icfg.Size or 64; local totalH=imgH+(icfg.Title and 24 or 10)
+                local IFr=_track(New("Frame",{ Size=UDim2.new(1,0,0,totalH), BackgroundColor3=Theme.PanelAlt, BorderSizePixel=0, ZIndex=4, LayoutOrder=SNO() }, SF))
+                New("UICorner",{ CornerRadius=UDim.new(0,6) }, IFr)
+                Reg(function() IFr.BackgroundColor3=Theme.PanelAlt end)
+                local yOff=5
+                if icfg.Title then
+                    New("TextLabel",{ Size=UDim2.new(1,-14,0,16), Position=UDim2.new(0,8,0,4), BackgroundTransparency=1, Text=icfg.Title, TextColor3=Theme.TextSecondary, TextSize=9, Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left, ZIndex=5 }, IFr)
+                    yOff=21
+                end
+                local ILb=New("ImageLabel",{ Size=UDim2.new(0,imgH,0,imgH), Position=UDim2.new(0.5,-imgH/2,0,yOff), BackgroundTransparency=1, Image=icfg.Image or "", ScaleType=Enum.ScaleType.Fit, ZIndex=5 }, IFr)
+                if icfg.Circle then New("UICorner",{ CornerRadius=UDim.new(0.5,0) }, ILb) end
+                local stk=New("UIStroke",{ Color=Theme.Accent, Thickness=2 }, ILb)
+                Reg(function() stk.Color=Theme.Accent end)
+                local iObj={}
+                function iObj:Set(img) ILb.Image=img end
+                function iObj:Get()    return ILb.Image end
+                return iObj
+            end
+
+            return SO
+        end
+
+        return TO
+    end
+
+    -- Show window (with optional loading screen / key system)
+    local function _doShow()
+        _setVisible(true)
+        if config.KeySystem then
+            _makeKeySystemUI(SG, config.KeySystem, Theme, function() end)
+        end
+    end
+
+    if config.LoadingScreen then
+        _makeLoadingScreen(SG, config, Theme, _doShow)
+    else
+        _doShow()
+    end
+
+    if config.KeySystem and not config.LoadingScreen then
+        MF.Visible=false; _statsActive=true
+        _makeKeySystemUI(SG, config.KeySystem, Theme, function() _setVisible(true) end)
+    end
+
+    return WO
+end
+
+return NexusUI
