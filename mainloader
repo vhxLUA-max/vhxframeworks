@@ -6,6 +6,7 @@ local GameRegistry = {
     [138013005633222] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
     [77439980360504] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
     [119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
+    [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
 }
 
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
