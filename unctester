@@ -4,17 +4,6 @@ local TARGET   = 130
 local TIMEOUT  = 12
 local LOG_FILE = "unc_progress.txt"
 
-local _b0 = bit32 or bit
-local function _bx(a, b)
-	if _b0 then return _b0.bxor(a, b) end
-	local r, m = 0, 2^31
-	repeat
-		if (a >= m) ~= (b >= m) then r = r + m end
-		a = a % m; b = b % m; m = m / 2
-	until m < 1
-	return r
-end
-
 local _rawequal = rawequal
 local _type     = type
 local _pcall    = pcall
@@ -34,89 +23,17 @@ local _insert   = table.insert
 local _sort     = table.sort
 local _min      = math.min
 
-local _rVer    = _bx(0x7F, 0x25)
-local _pwSeed  = {44, 50, 34, 22, 15, 27, 5, 49, 63, 35}
-local _xSeed   = {12, 87, 33, 61, 9, 44, 72, 18}
-local _ySeed   = {99, 3, 55, 27, 14, 38, 60, 7, 21, 45, 8, 16}
-
-local function _pwStr()
-	local s = ""
-	for i = 1, #_pwSeed do s = s .. string.char(_bx(_pwSeed[i], _rVer)) end
-	return s
-end
-local function _xStr()
-	local s = ""
-	for i = 1, #_xSeed do s = s .. string.char(_bx(_xSeed[i], _rVer)) end
-	return s
-end
-local function _yStr()
-	local s = ""
-	for i = 1, #_ySeed do s = s .. string.char(_bx(_ySeed[i], _rVer)) end
-	return s
-end
-
-local function _djb2(s)
-	local h = 5381
-	for i = 1, #s do h = _bx(h * 33, string.byte(s, i)); h = h % 4294967296 end
-	return h
-end
-local function _sdbm(s)
-	local h = 0
-	for i = 1, #s do h = _bx(string.byte(s, i) + _bx(h, 65536) + _bx(h, 6), h); h = h % 4294967296 end
-	return h
-end
-local function _fnv1a(s)
-	local h = 2166136261
-	for i = 1, #s do h = _bx(h, string.byte(s, i)); h = (h * 16777619) % 4294967296 end
-	return h
-end
-
-local _c1 = _djb2("vhxLUA" .. _pwStr())
-local _c2 = _sdbm(_xStr() .. "vhxLUA" .. _yStr())
-local _c3 = _fnv1a(_pwStr() .. "vhxLUA")
-local _c4 = (_djb2(_xStr()) + _sdbm(_yStr())) % 4294967296
-
-local _authorURL = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/main/author.txt"
-
-local function _chatCredit()
-	_pcall(function()
-		local P = game:GetService("Players")
-		local lp = P.LocalPlayer
-		if lp and lp.Character then
-			local head = lp.Character:FindFirstChild("Head")
-			if head then
-				game:GetService("Chat"):Chat(head, "Script by vhxLUA — please credit the original author.", Enum.ChatColor.Blue)
-			end
-		end
-	end)
-end
-
-local function _fail()
-	_chatCredit()
-	print("nice try kiddo")
-	error("", 0)
-end
-
-local function _verify()
-	local a = AUTHOR
-	if _djb2(a .. _pwStr()) ~= _c1 then _fail() end
-	if _sdbm(_xStr() .. a .. _yStr()) ~= _c2 then _fail() end
-	if _fnv1a(_pwStr() .. a) ~= _c3 then _fail() end
-	if (_djb2(_xStr()) + _sdbm(_yStr())) % 4294967296 ~= _c4 then _fail() end
-	local ok, remote = _pcall(function() return game:HttpGet(_authorURL) end)
-	if not ok or type(remote) ~= "string" then _fail() end
-	remote = remote:match("^%s*(.-)%s*$")
-	if remote ~= "vhxLUA" then _fail() end
-end
-
-_verify()
-
-task.delay(30, function()
-	while true do
-		task.wait(45)
-		_pcall(_verify)
+local function _resolveEnv(tbl, path)
+	if _type(tbl) ~= "table" and _type(tbl) ~= "userdata" then return nil end
+	local cur = tbl
+	for seg in _gmatch(path, "[^%.]+") do
+		if _type(cur) ~= "table" and _type(cur) ~= "userdata" then return nil end
+		local ok, v = _pcall(function() return cur[seg] end)
+		if not ok or v == nil then return nil end
+		cur = v
 	end
-end)
+	return cur
+end
 
 local _canLog = _type(writefile) == "function"
 local function _log(msg)
@@ -145,22 +62,11 @@ local function _aP() passes = passes + 1 end
 
 local function _resolve(path)
 	if _type(path) ~= "string" or path == "" then return nil end
-	local function _tryEnv(env)
-		if _type(env) ~= "table" and _type(env) ~= "userdata" then return nil end
-		local cur = env
-		for seg in _gmatch(path, "[^%.]+") do
-			if _type(cur) ~= "table" and _type(cur) ~= "userdata" then return nil end
-			local ok, v = _pcall(function() return cur[seg] end)
-			if not ok or v == nil then return nil end
-			cur = v
-		end
-		return cur
-	end
-	local v = _tryEnv(getfenv(0))
+	local v = _resolveEnv(getfenv(0), path)
 	if v ~= nil then return v end
-	if _type(_G) == "table" then v = _tryEnv(_G); if v ~= nil then return v end end
+	if _type(_G) == "table" then v = _resolveEnv(_G, path); if v ~= nil then return v end end
 	local ok, renv = _safe(getrenv)
-	if ok and _type(renv) == "table" then v = _tryEnv(renv); if v ~= nil then return v end end
+	if ok and _type(renv) == "table" then v = _resolveEnv(renv, path); if v ~= nil then return v end end
 	return nil
 end
 
@@ -178,7 +84,17 @@ local function _animate()
 	return anim
 end
 
+local _v0 = (function(s) local r=0; for i=1,#s do r=r+_byte(s,i)*i end; return r end)(VERSION)
+local _a0 = (function(s) local r=0; for i=1,#s do r=r+_byte(s,i) end; return r end)(AUTHOR)
+local _vk = _v0 * 7 + 3
+local _ak = _a0 * 13 + 5
+
 local function _integrityCheck()
+	local _vc = (function(s) local r=0; for i=1,#s do r=r+_byte(s,i)*i end; return r end)(VERSION)
+	local _ac = (function(s) local r=0; for i=1,#s do r=r+_byte(s,i) end; return r end)(AUTHOR)
+	if (_vc * 7 + 3) ~= _vk then ICOUNT = ICOUNT + 1; _insert(IFLAGS, "v:mut") end
+	if (_ac * 13 + 5) ~= _ak then ICOUNT = ICOUNT + 1; _insert(IFLAGS, "a:mut") end
+
 	local function ic(fn, ...) local ok, r = _pcall(fn, ...); return ok and r end
 	if _type(iscclosure) == "function" then
 		if ic(iscclosure, function() end) ~= false then _flag("icc:lua->t") end
@@ -283,7 +199,8 @@ local function _printSummary()
 	local bar  = _rep("=", 60)
 	local thin = _rep("-", 60)
 	print(bar)
-	print(_fmt("[UNC] UNC Tester v%s", VERSION))
+	print(_fmt("[UNC] UNC Tester v%s by vhxLUA", VERSION))
+	print(_fmt("[UNC] Source    : https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/unctester", VERSION))
 	print(_fmt("[UNC] Executor  : %s", execName))
 	print(thin)
 	print(_fmt("[UNC] Passed    : %d", passes))
