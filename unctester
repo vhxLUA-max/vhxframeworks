@@ -1,4 +1,5 @@
 local VERSION  = "1.0.0"
+local AUTHOR   = "vhxLUA"
 local TARGET   = 130
 local TIMEOUT  = 12
 local LOG_FILE = "unc_progress.txt"
@@ -13,45 +14,6 @@ local function _bx(a, b)
 	until m < 1
 	return r
 end
-
-local _rVer  = _bx(0x7F, 0x25)
-local _cSeed = {44, 34, 15}
-local _pSeed = {50, 22, 27}
-local _pwSeed= {44, 50, 34, 22, 15, 27, 5, 49, 63, 35}
-
-local function _verStr()
-	local b = {_cSeed[1],_pSeed[1],_cSeed[2],_pSeed[2],_cSeed[3],_pSeed[3]}
-	local s = ""
-	for i = 1, 6 do s = s .. string.char(_bx(b[i], _rVer)) end
-	return s
-end
-
-local function _pwStr()
-	local s = ""
-	for i = 1, #_pwSeed do s = s .. string.char(_bx(_pwSeed[i], _rVer)) end
-	return s
-end
-
-local function _djb2(s)
-	local h = 5381
-	for i = 1, #s do h = _bx(h * 33, string.byte(s, i)); h = h % 4294967296 end
-	return h
-end
-local function _h2(s)
-	local p = {2,3,5,7,11,13}; local r = 0
-	for i = 1, math.min(#s, 6) do r = r + string.byte(s, i) * p[i] end
-	return r
-end
-local function _h4(s)
-	local r = 0
-	for i = 1, #s do r = r + string.byte(s, i) end
-	return r % 65537
-end
-
-local _bSum1 = 44497*44499+17624
-local _bSum2 = 3460
-local _bSum3 = 1009
-local _SIG   = 3131693421
 
 local _rawequal = rawequal
 local _type     = type
@@ -72,6 +34,28 @@ local _insert   = table.insert
 local _sort     = table.sort
 local _min      = math.min
 
+local _rVer   = _bx(0x7F, 0x25)
+local _pwSeed = {44, 50, 34, 22, 15, 27, 5, 49, 63, 35}
+local function _pwStr() local s = "" for i = 1, #_pwSeed do s = s .. string.char(_bx(_pwSeed[i], _rVer)) end return s end
+local function _djb2(s) local h = 5381 for i = 1, #s do h = _bx(h * 33, string.byte(s, i)); h = h % 4294967296 end return h end
+local _cr = _djb2("vhxLUA" .. _pwStr())
+local function _chk()
+	if _djb2(AUTHOR .. _pwStr()) ~= _cr then
+		_pcall(function()
+			local P = game:GetService("Players")
+			local lp = P.LocalPlayer
+			if lp and lp.Character then
+				local head = lp.Character:FindFirstChild("Head")
+				if head then
+					game:GetService("Chat"):Chat(head, "Script by vhxLUA — please credit the original author.", Enum.ChatColor.Blue)
+				end
+			end
+		end)
+		error("", 0)
+	end
+end
+_chk()
+
 local _canLog = _type(writefile) == "function"
 local function _log(msg)
 	if _canLog then _pcall(writefile, LOG_FILE, msg) end
@@ -82,40 +66,6 @@ local function _safe(fn, ...)
 end
 local function _uid()
 	return _fmt("u%x%x", _random(0, 0xFFFFFF), _random(0, 0xFFFFFF))
-end
-local function _die()
-	print("nice try kid")
-	error("", 0)
-end
-
-local function _boot()
-	local live = _verStr()
-	if _djb2(live) ~= _bSum1 then _die() end
-	if _h2(live)   ~= _bSum2 then _die() end
-	if _h4(live)   ~= _bSum3 then _die() end
-	if #live ~= 6 or _rVer ~= 90 then _die() end
-	if _cSeed[1] ~= 44 or _pSeed[1] ~= 50 then _die() end
-end
-
-local function _checkLoader()
-	local ok, genv = _pcall(getgenv)
-	if not ok or _type(genv) ~= "table" then _die() end
-	local sig = genv.__VHX_SIG
-	genv.__VHX_SIG = nil
-	local expected = _djb2(_verStr() .. _pwStr())
-	if _type(sig) ~= "number" or sig ~= expected or expected ~= _SIG then _die() end
-end
-
-local _bootOk, _bootErr = _pcall(_boot)
-if not _bootOk then
-	if _bootErr and #_bootErr > 0 then warn(_bootErr) end
-	return
-end
-
-local _loadOk, _loadErr = _pcall(_checkLoader)
-if not _loadOk then
-	if _loadErr and #_loadErr > 0 then warn(_loadErr) end
-	return
 end
 
 local passes   = 0
