@@ -1,5 +1,17 @@
-local MarketplaceService = game:GetService("MarketplaceService")
+-- Counter
+pcall(function()
+    game:HttpGetAsync("https://wmmslqlvgdpmruhdgbqf.supabase.co/rest/v1/rpc/increment_execution", {
+        Method = "POST",
+        Headers = {
+            ["apikey"] = "sb_publishable_uI1jUSxjWDhnBIyxaa4BAg_ierdMsqG",
+            ["Content-Type"] = "application/json"
+        },
+        Body = '{"p_place_id":' .. tostring(game.PlaceId) .. '}'
+    })
+end)
 
+-- Main loader
+local MarketplaceService = game:GetService("MarketplaceService")
 local GameRegistry = {
     [18172550962] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
     [18172553902] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
@@ -9,12 +21,9 @@ local GameRegistry = {
     [119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
     [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
 }
-
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-
 local PlaceId = game.PlaceId
 local url = GameRegistry[PlaceId]
-
 if not url then
     Fluent:Notify({
         Title = "vhxHub",
@@ -23,11 +32,9 @@ if not url then
     })
     return
 end
-
 local ok, err = pcall(function()
     loadstring(game:HttpGet(url))()
 end)
-
 if ok then
     Fluent:Notify({
         Title = "vhxHub",
