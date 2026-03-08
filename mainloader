@@ -1,4 +1,3 @@
--- Counter
 pcall(function()
     game:HttpGetAsync("https://wmmslqlvgdpmruhdgbqf.supabase.co/rest/v1/rpc/increment_execution", {
         Method = "POST",
@@ -10,31 +9,34 @@ pcall(function()
     })
 end)
 
--- Main loader
 local MarketplaceService = game:GetService("MarketplaceService")
+
 local GameRegistry = {
-    [18172550962] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
-    [18172553902] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
+    [18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
+    [18172553902]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
     [133884972346775] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
     [138013005633222] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
-    [77439980360504] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
+    [77439980360504]  = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
     [119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
     [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
 }
+
 local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
-local PlaceId = game.PlaceId
-local url = GameRegistry[PlaceId]
+local url = GameRegistry[game.PlaceId]
+
 if not url then
     Fluent:Notify({
         Title = "vhxHub",
-        Content = "No script for PlaceId: " .. tostring(PlaceId),
+        Content = "No script for PlaceId: " .. tostring(game.PlaceId),
         Duration = 6,
     })
     return
 end
+
 local ok, err = pcall(function()
     loadstring(game:HttpGet(url))()
 end)
+
 if ok then
     Fluent:Notify({
         Title = "vhxHub",
