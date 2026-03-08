@@ -1,5 +1,6 @@
 pcall(function()
-    game:HttpGetAsync("https://wmmslqlvgdpmruhdgbqf.supabase.co/rest/v1/rpc/increment_execution", {
+    request({
+        Url = "https://wmmslqlvgdpmruhdgbqf.supabase.co/rest/v1/rpc/increment_execution",
         Method = "POST",
         Headers = {
             ["apikey"] = "sb_publishable_uI1jUSxjWDhnBIyxaa4BAg_ierdMsqG",
@@ -8,8 +9,6 @@ pcall(function()
         Body = '{"p_place_id":' .. tostring(game.PlaceId) .. '}'
     })
 end)
-
-local MarketplaceService = game:GetService("MarketplaceService")
 
 local GameRegistry = {
     [18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
@@ -21,33 +20,9 @@ local GameRegistry = {
     [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
 }
 
-local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local url = GameRegistry[game.PlaceId]
+if not url then return end
 
-if not url then
-    Fluent:Notify({
-        Title = "vhxHub",
-        Content = "No script for PlaceId: " .. tostring(game.PlaceId),
-        Duration = 6,
-    })
-    return
-end
-
-local ok, err = pcall(function()
+pcall(function()
     loadstring(game:HttpGet(url))()
 end)
-
-if ok then
-    Fluent:Notify({
-        Title = "vhxHub",
-        Content = "Loaded successfully!",
-        Duration = 3,
-    })
-else
-    Fluent:Notify({
-        Title = "vhxHub | Error",
-        Content = tostring(err),
-        Duration = 8,
-    })
-    warn(err)
-end
