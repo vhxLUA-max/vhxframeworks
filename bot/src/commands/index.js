@@ -352,4 +352,42 @@ export const commands = [
     },
   },
 
+  {
+    data: new SlashCommandBuilder()
+      .setName('help')
+      .setDescription('List all available commands'),
+    async execute(i) {
+      const admin = ADMIN_IDS.includes(i.user.id);
+      const embed = base()
+        .setTitle('📖 vhxLUA Bot Commands')
+        .addFields(
+          {
+            name: '📊 Public',
+            value: [
+              '`/stats` — overall dashboard stats',
+              '`/game [name]` — stats for a specific game',
+              '`/whois [username]` — look up user by Roblox username',
+              '`/changelog` — latest changelog entries',
+              '`/help` — show this message',
+            ].join('\n'),
+          },
+          ...(admin ? [{
+            name: '🔒 Admin',
+            value: [
+              '`/user [token]` — look up user by token',
+              '`/ban [username] [reason]` — ban a user',
+              '`/unban [username]` — unban a user',
+              '`/bans` — list all banned users',
+              '`/softban [username] [duration] [unit]` — temp ban with auto-unban',
+              '`/banlog` — ban audit trail',
+              '`/suspicious [threshold]` — flag unusual execution patterns',
+              '`/tokens` — list all verified tokens',
+              '`/addchangelog [game] [type] [title]` — add changelog entry',
+            ].join('\n'),
+          }] : []),
+        );
+      await i.reply({ embeds: [embed], ephemeral: true });
+    },
+  },
+
 ];
