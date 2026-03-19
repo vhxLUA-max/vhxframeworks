@@ -422,8 +422,6 @@ export const commands = [
     },
   },
 
-  },
-
   {
     data: new SlashCommandBuilder()
       .setName('script')
