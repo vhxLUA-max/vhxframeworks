@@ -413,7 +413,9 @@ export const commands = [
               '`/banlog` — ban audit trail',
               '`/suspicious [threshold]` — flag unusual execution patterns',
               '`/tokens` — list all verified tokens',
-              '`/addchangelog [game] [type] [title]` — add changelog entry',
+              '`/fpban [username] [reason]` — ban by device fingerprint',
+              '`/fpunban [username]` — remove device ban',
+              '`/fpbans` — list all device bans',
             ].join('\n'),
           }] : []),
         );
@@ -498,6 +500,70 @@ export const commands = [
       for (const s of SCRIPTS) {
         await i.followUp({ content: `**${s.name}:**\n\`\`\`lua\n${s.loader}\n\`\`\``, ephemeral: true });
       }
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('fpban').setDefaultMemberPermissions(0)
+      .setDescription('Ban a user by device fingerprint [Admin only]')
+      .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
+      .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply({ ephemeral: true });
+      const username = i.options.getString('username');
+      const reason   = i.options.getString('reason') ?? null;
+      const { data: rows } = await supabase.from('unique_users').select('roblox_user_id,username,fingerprint').ilike('username', username).limit(1);
+      const user = rows?.[0];
+      if (!user) return i.editReply({ embeds: [err(`**${username}** not found.`)] });
+      if (!user.fingerprint) return i.editReply({ embeds: [err(`No fingerprint found for **${username}**. They need to run the script again after the mainloader update.`)] });
+      const { error } = await supabase.from('fingerprint_bans').insert({ fingerprint: user.fingerprint, roblox_user_id: user.roblox_user_id, username: user.username, reason });
+      if (error) return i.editReply({ embeds: [err(error.message)] });
+      await logAction(i, 'fpban', { username: user.username, fingerprint: user.fingerprint, reason });
+      const embed = base(COLORS.danger)
+        .setTitle('🔒 Device Banned')
+        .setDescription([
+          `> 👤 **User** — @${user.username}`,
+          `> 🔑 **Fingerprint** — \`${user.fingerprint}\``,
+          `> 📋 **Reason** — ${reason ?? 'No reason provided'}`,
+          `> 🛡️ **Banned by** — <@${i.user.id}>`,
+        ].join('\n'));
+      await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('fpbans').setDefaultMemberPermissions(0)
+      .setDescription('List all device fingerprint bans [Admin only]'),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply({ ephemeral: true });
+      const { data } = await supabase.from('fingerprint_bans').select('*').order('created_at', { ascending: false });
+      if (!data?.length) return i.editReply({ embeds: [base().setDescription('No device bans.')] });
+      const lines = data.slice(0, 20).map(b => `> 🔒 **@${b.username ?? b.roblox_user_id}** — \`${b.fingerprint}\` — ${b.reason ?? 'No reason'} *(${timeAgo(b.created_at)})*`).join('\n');
+      const embed = base(COLORS.danger)
+        .setTitle(`🔒 Device Bans (${data.length})`)
+        .setDescription(lines);
+      await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('fpunban').setDefaultMemberPermissions(0)
+      .setDescription('Remove a device fingerprint ban [Admin only]')
+      .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true)),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply({ ephemeral: true });
+      const username = i.options.getString('username');
+      const { data: rows } = await supabase.from('fingerprint_bans').select('id,username').ilike('username', username).limit(1);
+      if (!rows?.length) return i.editReply({ embeds: [err(`No device ban found for **${username}**.`)] });
+      await supabase.from('fingerprint_bans').delete().eq('id', rows[0].id);
+      await logAction(i, 'fpunban', { username: rows[0].username });
+      await i.editReply({ embeds: [base(COLORS.success).setDescription(`✅ Device ban removed for **@${rows[0].username}**`)] });
     },
   },
 
