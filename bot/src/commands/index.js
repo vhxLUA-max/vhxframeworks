@@ -31,13 +31,13 @@ export const commands = [
       const last = (execs ?? []).sort((a, b) => new Date(b.last_executed_at) - new Date(a.last_executed_at))[0];
       const embed = base()
         .setTitle('📊 Dashboard Stats')
-        .addFields(
-          { name: '⚡ Total Executions', value: fmt(total),   inline: true },
-          { name: '📅 Today',            value: fmt(daily),   inline: true },
-          { name: '👥 New Users (24h)',   value: fmt(active),  inline: true },
-          { name: '🕒 Last Execution',    value: last ? timeAgo(last.last_executed_at) : '—', inline: true },
-          { name: '🎮 Active Scripts',    value: `${(execs ?? []).length}`, inline: true },
-        );
+        .setDescription([
+          `> ⚡ **Total Executions** — \`${fmt(total)}\``,
+          `> 📅 **Today** — \`${fmt(daily)}\``,
+          `> 👥 **New Users (24h)** — \`${fmt(active)}\``,
+          `> 🕒 **Last Execution** — \`${last ? timeAgo(last.last_executed_at) : '—'}\``,
+          `> 🎮 **Active Scripts** — \`3\``,
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -55,10 +55,10 @@ export const commands = [
       const row = data[0];
       const embed = base()
         .setTitle(`🎮 ${name}`)
-        .addFields(
-          { name: '⚡ Total Executions', value: fmt(row.count),    inline: true },
-          { name: '🕒 Last Execution',    value: timeAgo(row.last_executed_at), inline: true },
-        );
+        .setDescription([
+          `> ⚡ **Total Executions** — \`${fmt(row.count)}\``,
+          `> 🕒 **Last Execution** — \`${timeAgo(row.last_executed_at)}\``,
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -79,17 +79,19 @@ export const commands = [
       const earliest = rows.reduce((a, b) => new Date(a.first_seen) < new Date(b.first_seen) ? a : b).first_seen;
       const latest   = rows.reduce((a, b) => new Date(a.last_seen)  > new Date(b.last_seen)  ? a : b).last_seen;
       const gameLines = rows.sort((a, b) => b.execution_count - a.execution_count)
-        .map(r => `**${r.game_name ?? `Place ${r.place_id}`}** — ${fmt(r.execution_count)} execs`).join('\n');
+        .map(r => `> 🎮 **${r.game_name ?? `Place ${r.place_id}`}** — \`${fmt(r.execution_count)} execs\``).join('\n');
       const embed = base()
         .setTitle(`👤 ${tokenRow.roblox_username}`)
         .setURL(`https://www.roblox.com/users/${tokenRow.roblox_user_id}/profile`)
-        .addFields(
-          { name: '⚡ Total Executions', value: fmt(total),         inline: true },
-          { name: '🎮 Games Played',     value: `${rows.length}`,   inline: true },
-          { name: '📅 First Seen',       value: timeAgo(earliest),  inline: true },
-          { name: '🕒 Last Seen',        value: timeAgo(latest),    inline: true },
-          { name: '🗂️ Game Breakdown',    value: gameLines || '—',   inline: false },
-        );
+        .setDescription([
+          `> ⚡ **Total Executions** — \`${fmt(total)}\``,
+          `> 🎮 **Games Played** — \`${rows.length}\``,
+          `> 📅 **First Seen** — \`${timeAgo(earliest)}\``,
+          `> 🕒 **Last Seen** — \`${timeAgo(latest)}\``,
+          ``,
+          `**Game Breakdown**`,
+          gameLines || '> —',
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -108,17 +110,19 @@ export const commands = [
       const earliest = rows.reduce((a, b) => new Date(a.first_seen) < new Date(b.first_seen) ? a : b).first_seen;
       const latest   = rows.reduce((a, b) => new Date(a.last_seen)  > new Date(b.last_seen)  ? a : b).last_seen;
       const gameLines = rows.sort((a, b) => b.execution_count - a.execution_count)
-        .map(r => `**${r.game_name ?? `Place ${r.place_id}`}** — ${fmt(r.execution_count)} execs`).join('\n');
+        .map(r => `> 🎮 **${r.game_name ?? `Place ${r.place_id}`}** — \`${fmt(r.execution_count)} execs\``).join('\n');
       const embed = base()
         .setTitle(`👤 ${rows[0].username}`)
         .setURL(`https://www.roblox.com/users/${rows[0].roblox_user_id}/profile`)
-        .addFields(
-          { name: '⚡ Total Executions', value: fmt(total),         inline: true },
-          { name: '🎮 Games Played',     value: `${rows.length}`,   inline: true },
-          { name: '📅 First Seen',       value: timeAgo(earliest),  inline: true },
-          { name: '🕒 Last Seen',        value: timeAgo(latest),    inline: true },
-          { name: '🗂️ Game Breakdown',    value: gameLines || '—',   inline: false },
-        );
+        .setDescription([
+          `> ⚡ **Total Executions** — \`${fmt(total)}\``,
+          `> 🎮 **Games Played** — \`${rows.length}\``,
+          `> 📅 **First Seen** — \`${timeAgo(earliest)}\``,
+          `> 🕒 **Last Seen** — \`${timeAgo(latest)}\``,
+          ``,
+          `**Game Breakdown**`,
+          gameLines || '> —',
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -141,11 +145,11 @@ export const commands = [
       if (error) return i.editReply({ embeds: [err(error.message)] });
       const embed = base(COLORS.danger)
         .setTitle('🔨 User Banned')
-        .addFields(
-          { name: 'Username', value: `@${user.username}`, inline: true },
-          { name: 'Reason',   value: reason ?? 'No reason provided', inline: true },
-          { name: 'By',       value: `<@${i.user.id}>`, inline: true },
-        );
+        .setDescription([
+          `> 👤 **User** — @${user.username}`,
+          `> 📋 **Reason** — ${reason ?? 'No reason provided'}`,
+          `> 🛡️ **Banned by** — <@${i.user.id}>`,
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -175,7 +179,7 @@ export const commands = [
       await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('banned_users').select('*').order('created_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No banned users.')] });
-      const lines = data.slice(0, 20).map(b => `**@${b.username ?? b.roblox_user_id}** — ${b.reason ?? 'No reason'} *(${timeAgo(b.created_at)})*`).join('\n');
+      const lines = data.slice(0, 20).map(b => `> 🚫 **@${b.username ?? b.roblox_user_id}** — \`${b.reason ?? 'No reason'}\` *(${timeAgo(b.created_at)})*`).join('\n');
       const embed = base(COLORS.danger)
         .setTitle(`🚫 Banned Users (${data.length})`)
         .setDescription(lines);
@@ -192,7 +196,7 @@ export const commands = [
       await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('user_tokens').select('*').order('updated_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No verified tokens.')] });
-      const lines = data.slice(0, 20).map(t => `**@${t.roblox_username}** — \`${t.token}\` *(${timeAgo(t.updated_at)})*`).join('\n');
+      const lines = data.slice(0, 20).map(t => `> 🔑 **@${t.roblox_username}** — \`${t.token}\` *(${timeAgo(t.updated_at)})*`).join('\n');
       const embed = base()
         .setTitle(`🔑 Verified Tokens (${data.length})`)
         .setDescription(lines);
@@ -209,7 +213,7 @@ export const commands = [
       const { data } = await supabase.from('changelog').select('*').order('date', { ascending: false }).limit(8);
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No changelog entries yet.')] });
       const TYPE_EMOJI = { new: '🟢', update: '🔵', fix: '🔴' };
-      const lines = data.map(e => `${TYPE_EMOJI[e.type] ?? '⚪'} **[${e.game}] ${e.title}** — ${e.body ? e.body : ''} \`${e.date}\``).join('\n');
+      const lines = data.map(e => `> ${TYPE_EMOJI[e.type] ?? '⚪'} **[${e.game}] ${e.title}**${e.body ? ` — ${e.body}` : ''} \`${e.date}\``).join('\n');
       const embed = base()
         .setTitle('📋 Changelog')
         .setDescription(lines);
@@ -237,12 +241,12 @@ export const commands = [
       if (error) return i.editReply({ embeds: [err(error.message)] });
       const embed = base(COLORS.success)
         .setTitle('✅ Changelog Entry Added')
-        .addFields(
-          { name: 'Game',  value: game,  inline: true },
-          { name: 'Type',  value: type,  inline: true },
-          { name: 'Title', value: title, inline: false },
-          ...(body ? [{ name: 'Description', value: body, inline: false }] : []),
-        );
+        .setDescription([
+          `> 🎮 **Game** — \`${game}\``,
+          `> 🏷️ **Type** — \`${type}\``,
+          `> 📝 **Title** — ${title}`,
+          ...(body ? [`> 💬 **Description** — ${body}`] : []),
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -281,12 +285,12 @@ export const commands = [
 
       const embed = base(COLORS.warning)
         .setTitle('⏱️ Softban Applied')
-        .addFields(
-          { name: 'User',      value: `@${user.username}`, inline: true },
-          { name: 'Duration',  value: `${duration} ${unit}`, inline: true },
-          { name: 'Unbans At', value: new Date(unbanAt).toUTCString(), inline: false },
-          { name: 'Reason',    value: reason ?? 'No reason provided', inline: false },
-        );
+        .setDescription([
+          `> 👤 **User** — @${user.username}`,
+          `> ⏳ **Duration** — \`${duration} ${unit}\``,
+          `> 📅 **Unbans At** — \`${new Date(unbanAt).toUTCString()}\``,
+          `> 📋 **Reason** — ${reason ?? 'No reason provided'}`,
+        ].join('\n'));
       await i.editReply({ embeds: [embed] });
     },
   },
@@ -306,7 +310,7 @@ export const commands = [
       const ACTION_EMOJI = { ban_user: '🔨', unban_user: '✅', softban: '⏱️' };
       const lines = data.map(e => {
         const detail = e.details ? `@${e.details.username ?? '?'}${e.details.reason ? ` — ${e.details.reason}` : ''}` : '—';
-        return `${ACTION_EMOJI[e.action] ?? '•'} **${e.action}** ${detail} *(${timeAgo(e.created_at)})*`;
+        return `> ${ACTION_EMOJI[e.action] ?? '•'} **${e.action}** — ${detail} *(${timeAgo(e.created_at)})*`;
       }).join('\n');
 
       const embed = base()
@@ -341,7 +345,7 @@ export const commands = [
         const sessionMs = new Date(u.last_seen).getTime() - new Date(u.first_seen).getTime();
         const sessionMin = Math.max(1, Math.round(sessionMs / 60000));
         const rate = Math.round(u.execution_count / sessionMin);
-        return `**@${u.username}** — ${fmt(u.execution_count)} execs · ~${rate}/min · last seen ${timeAgo(u.last_seen)}`;
+        return `> ⚠️ **@${u.username}** — \`${fmt(u.execution_count)} execs\` · ~\`${rate}/min\` · last \`${timeAgo(u.last_seen)}\``;
       }).join('\n');
 
       const embed = base(COLORS.danger)
