@@ -421,7 +421,7 @@ export const commands = [
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) return i.editReply({ embeds: [err('Gemini API key not configured.')] });
       try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -429,6 +429,10 @@ export const commands = [
           }),
         });
         const json = await res.json();
+        if (!res.ok) {
+          console.error('[Gemini error]', JSON.stringify(json));
+          return i.editReply({ embeds: [err(`Gemini error: ${json?.error?.message ?? res.status}`)] });
+        }
         const answer = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.';
         const truncated = answer.length > 3900 ? answer.slice(0, 3900) + '...' : answer;
         const embed = base()
