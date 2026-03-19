@@ -416,32 +416,42 @@ export const commands = [
       .setDescription('Ask the AI anything')
       .addStringOption(o => o.setName('question').setDescription('Your question').setRequired(true)),
     async execute(i) {
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const question = i.options.getString('question');
       const apiKey = process.env.GEMINI_API_KEY;
       if (!apiKey) return i.editReply({ embeds: [err('Gemini API key not configured.')] });
-      try {
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `You are a helpful assistant for vhxLUA, a Roblox script hub. Answer concisely.\n\n${question}` }] }],
-          }),
-        });
-        const json = await res.json();
-        if (!res.ok) {
-          console.error('[Gemini error]', JSON.stringify(json));
-          return i.editReply({ embeds: [err(`Gemini error: ${json?.error?.message ?? res.status}`)] });
-        }
-        const answer = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.';
-        const truncated = answer.length > 3900 ? answer.slice(0, 3900) + '...' : answer;
-        const embed = base()
-          .setTitle('🤖 AI Answer')
-          .setDescription(`> **${question}**\n\n${truncated}`);
-        await i.editReply({ embeds: [embed] });
-      } catch {
-        await i.editReply({ embeds: [err('Failed to get a response from Gemini.')] });
+
+      const MODELS = [
+        'gemini-2.0-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-1.5-flash',
+        'gemini-1.5-pro-latest',
+        'gemini-pro',
+      ];
+
+      let answer = null;
+      for (const model of MODELS) {
+        try {
+          const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: `You are a helpful assistant for vhxLUA, a Roblox script hub. Answer concisely.\n\n${question}` }] }],
+            }),
+          });
+          const json = await res.json();
+          const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (res.ok && text) { answer = text; break; }
+        } catch { continue; }
       }
+
+      if (!answer) return i.editReply({ embeds: [err('Gemini could not generate a response. Check your API key or try again later.')] });
+
+      const truncated = answer.length > 3900 ? answer.slice(0, 3900) + '...' : answer;
+      const embed = base()
+        .setTitle('🤖 AI Answer')
+        .setDescription(`> **${question}**\n\n${truncated}`);
+      await i.editReply({ embeds: [embed] });
     },
   },
 
