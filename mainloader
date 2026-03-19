@@ -11,47 +11,15 @@ if not player then return end
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
 
-local function post(endpoint, body, headers)
-	pcall(function()
-		httpRequest({
-			Url = SUPABASE_URL .. endpoint,
-			Method = "POST",
-			Headers = headers or {
-				["apikey"] = SUPABASE_KEY,
-				["Authorization"] = "Bearer " .. SUPABASE_KEY,
-				["Content-Type"] = "application/json",
-				["Prefer"] = "resolution=merge-duplicates",
-			},
-			Body = type(body) == "string" and body or HttpService:JSONEncode(body),
-		})
-	end)
-end
-
-local placeId = game.PlaceId
-local now = os.date("!%Y-%m-%dT%H:%M:%SZ")
-
-task.spawn(function()
-	post("/rest/v1/rpc/increment_execution", '{"p_place_id":' .. tostring(placeId) .. '}')
-
-	post("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id", {
-		roblox_user_id = player.UserId,
-		username = player.Name,
-		place_id = placeId,
-		execution_count = 1,
-		first_seen = now,
-		last_seen = now,
-	}, {
-		["apikey"] = SUPABASE_KEY,
-		["Authorization"] = "Bearer " .. SUPABASE_KEY,
-		["Content-Type"] = "application/json",
-		["Prefer"] = "resolution=merge-duplicates,return=minimal",
-	})
-end)
-
-local obfLoader = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"
-pcall(function()
-	loadstring(game:HttpGet(obfLoader))()
-end)
+local GameNames = {
+	[18172550962]     = "Pixel Blade",
+	[18172553902]     = "Pixel Blade",
+	[133884972346775] = "Pixel Blade",
+	[138013005633222] = "Loot Hero",
+	[77439980360504]  = "Loot Hero",
+	[119987266683883] = "Survive Lava",
+	[136801880565837] = "Flick",
+}
 
 local GameRegistry = {
 	[18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
@@ -62,6 +30,55 @@ local GameRegistry = {
 	[119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
 	[136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
 }
+
+local BASE_HEADERS = {
+	["apikey"]        = SUPABASE_KEY,
+	["Authorization"] = "Bearer " .. SUPABASE_KEY,
+	["Content-Type"]  = "application/json",
+}
+
+local function supaRequest(endpoint, method, body, prefer)
+	local headers = {}
+	for k, v in pairs(BASE_HEADERS) do headers[k] = v end
+	if prefer then headers["Prefer"] = prefer end
+	pcall(function()
+		httpRequest({
+			Url    = SUPABASE_URL .. endpoint,
+			Method = method,
+			Headers = headers,
+			Body   = type(body) == "string" and body or HttpService:JSONEncode(body),
+		})
+	end)
+end
+
+local placeId  = game.PlaceId
+local userId   = player.UserId
+local username = player.Name
+local gameName = GameNames[placeId] or ("Place " .. tostring(placeId))
+local now      = os.date("!%Y-%m-%dT%H:%M:%SZ")
+
+task.spawn(function()
+	supaRequest(
+		"/rest/v1/rpc/increment_execution",
+		"POST",
+		'{"p_place_id":' .. tostring(placeId) .. ',"p_game_name":"' .. gameName .. '"}'
+	)
+
+	supaRequest(
+		"/rest/v1/rpc/upsert_user_execution",
+		"POST",
+		{
+			p_roblox_user_id = userId,
+			p_username       = username,
+			p_place_id       = placeId,
+			p_now            = now,
+		}
+	)
+end)
+
+pcall(function()
+	loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))()
+end)
 
 local url = GameRegistry[placeId]
 if not url then return end
