@@ -11,136 +11,98 @@ if not LP then return end
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
 
-local HDR = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY }
+local BASE = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY }
 
-local function GET(ep)
-    local ok, r = pcall(httpRequest, { Url=SUPABASE_URL..ep, Method="GET", Headers=HDR })
+local function req(method, ep, body, prefer)
+    local h = {}
+    for k,v in pairs(BASE) do h[k]=v end
+    if body then h["Content-Type"] = "application/json" end
+    if prefer then h["Prefer"] = prefer end
+    local ok, r = pcall(httpRequest, {
+        Url=SUPABASE_URL..ep, Method=method, Headers=h,
+        Body=body and (type(body)=="string" and body or HttpService:JSONEncode(body)) or nil
+    })
     return ok and r or nil
-end
-
-local function POST(ep, body)
-    local h = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY, ["Content-Type"]="application/json", ["Prefer"]="resolution=merge-duplicates,return=minimal" }
-    pcall(httpRequest, { Url=SUPABASE_URL..ep, Method="POST", Headers=h, Body=type(body)=="string" and body or HttpService:JSONEncode(body) })
 end
 
 local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX","BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST","NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
 local function genToken()
-    return WORDS[math.random(1,#WORDS)] .. tostring(math.random(1000,9999))
+    return WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999))
 end
 
 local placeId = game.PlaceId
 local now     = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
--- ── Ban check (blocking — must pass before any script loads) ──────────────────
-local banRes = GET(("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId))
+-- ── Ban check ────────────────────────────────────────────────────────────────
+local banRes = req("GET", ("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId))
 if banRes and banRes.Body then
     local ok, data = pcall(HttpService.JSONDecode, HttpService, banRes.Body)
     if ok and data and #data > 0 then
-        local reason = (data[1].reason and data[1].reason ~= "") and data[1].reason or "No reason provided."
-
-        -- Show GUI notification
+        local reason = (data[1].reason ~= "") and data[1].reason or "No reason provided."
         pcall(function()
             local sg = Instance.new("ScreenGui")
-            sg.Name = "VHX_BAN"
-            sg.ResetOnSpawn = false
-            sg.DisplayOrder = 9999
+            sg.Name = "VHX_BAN"; sg.ResetOnSpawn = false; sg.DisplayOrder = 9999
             sg.Parent = game:GetService("CoreGui")
-
             local frame = Instance.new("Frame")
-            frame.Size = UDim2.new(0, 420, 0, 120)
-            frame.Position = UDim2.new(0.5, -210, 0.5, -60)
-            frame.BackgroundColor3 = Color3.fromRGB(15, 5, 5)
-            frame.BorderSizePixel = 0
-            frame.Parent = sg
-            Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 12)
-
+            frame.Size = UDim2.new(0,420,0,120); frame.Position = UDim2.new(0.5,-210,0.5,-60)
+            frame.BackgroundColor3 = Color3.fromRGB(15,5,5); frame.BorderSizePixel = 0; frame.Parent = sg
+            Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
             local stroke = Instance.new("UIStroke", frame)
-            stroke.Color = Color3.fromRGB(200, 30, 30)
-            stroke.Thickness = 2
-
+            stroke.Color = Color3.fromRGB(200,30,30); stroke.Thickness = 2
             local title = Instance.new("TextLabel")
-            title.Size = UDim2.new(1, -20, 0, 32)
-            title.Position = UDim2.new(0, 10, 0, 10)
-            title.BackgroundTransparency = 1
-            title.Text = "🚫  You are banned from vhxLUA scripts"
-            title.TextColor3 = Color3.fromRGB(255, 80, 80)
-            title.Font = Enum.Font.GothamBold
-            title.TextSize = 14
-            title.TextXAlignment = Enum.TextXAlignment.Left
-            title.Parent = frame
-
+            title.Size = UDim2.new(1,-20,0,32); title.Position = UDim2.new(0,10,0,10)
+            title.BackgroundTransparency = 1; title.Text = "🚫  You are banned from vhxLUA scripts"
+            title.TextColor3 = Color3.fromRGB(255,80,80); title.Font = Enum.Font.GothamBold
+            title.TextSize = 14; title.TextXAlignment = Enum.TextXAlignment.Left; title.Parent = frame
             local msg = Instance.new("TextLabel")
-            msg.Size = UDim2.new(1, -20, 0, 48)
-            msg.Position = UDim2.new(0, 10, 0, 46)
-            msg.BackgroundTransparency = 1
-            msg.Text = "Reason: " .. reason
-            msg.TextColor3 = Color3.fromRGB(200, 150, 150)
-            msg.Font = Enum.Font.Gotham
-            msg.TextSize = 12
-            msg.TextWrapped = true
-            msg.TextXAlignment = Enum.TextXAlignment.Left
-            msg.TextYAlignment = Enum.TextYAlignment.Top
+            msg.Size = UDim2.new(1,-20,0,48); msg.Position = UDim2.new(0,10,0,46)
+            msg.BackgroundTransparency = 1; msg.Text = "Reason: "..reason
+            msg.TextColor3 = Color3.fromRGB(200,150,150); msg.Font = Enum.Font.Gotham
+            msg.TextSize = 12; msg.TextWrapped = true
+            msg.TextXAlignment = Enum.TextXAlignment.Left; msg.TextYAlignment = Enum.TextYAlignment.Top
             msg.Parent = frame
         end)
-
-        warn("[vhxLUA] You are banned. Reason: " .. reason)
+        warn("[vhxLUA] Banned: "..reason)
         return
     end
 end
 
--- ── Logger (async — non-blocking) ────────────────────────────────────────────
+-- ── Logger ───────────────────────────────────────────────────────────────────
 task.spawn(function()
-    POST("/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
+    req("POST", "/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
 
-    local res = GET(("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=token,first_seen"):format(LP.UserId, placeId))
-    local token, firstSeen = nil, now
+    local existing = req("GET", ("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=token,first_seen,execution_count"):format(LP.UserId, placeId))
+    local token, firstSeen, currentCount = nil, now, 0
 
-    if res and res.Body then
-        local ok, data = pcall(HttpService.JSONDecode, HttpService, res.Body)
+    if existing and existing.Body then
+        local ok, data = pcall(HttpService.JSONDecode, HttpService, existing.Body)
         if ok and data and #data > 0 then
-            token     = data[1].token
-            firstSeen = data[1].first_seen or now
+            token        = data[1].token
+            firstSeen    = data[1].first_seen or now
+            currentCount = data[1].execution_count or 0
         end
     end
 
     if not token then token = genToken() end
 
-    -- Try RPC first, fallback to direct upsert
-    local rpcBody = HttpService:JSONEncode({
-        p_roblox_user_id = LP.UserId,
-        p_username       = LP.Name,
-        p_place_id       = placeId,
-        p_first_seen     = firstSeen,
-        p_last_seen      = now,
-        p_token          = token,
-    })
-    local rpcOk, rpcRes = pcall(httpRequest, {
-        Url     = SUPABASE_URL .. "/rest/v1/rpc/upsert_user",
-        Method  = "POST",
-        Headers = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY, ["Content-Type"]="application/json" },
-        Body    = rpcBody,
-    })
-
-    -- If RPC failed or returned error, fall back to direct increment
-    local rpcFailed = not rpcOk or (rpcRes and rpcRes.StatusCode and rpcRes.StatusCode >= 400)
-    if rpcFailed then
-        -- Direct upsert with increment via SQL function workaround
-        POST("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id", {
-            roblox_user_id  = LP.UserId,
-            username        = LP.Name,
-            place_id        = placeId,
-            first_seen      = firstSeen,
-            last_seen       = now,
-            execution_count = 1,
-            token           = token,
-        })
-        warn("[vhx] RPC failed, used direct upsert. Run fix_supabase_schema.sql!")
+    if currentCount > 0 then
+        req("PATCH",
+            ("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d"):format(LP.UserId, placeId),
+            { username=LP.Name, last_seen=now, execution_count=currentCount+1, token=token },
+            "return=minimal"
+        )
+    else
+        req("POST",
+            "/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",
+            { roblox_user_id=LP.UserId, username=LP.Name, place_id=placeId, first_seen=firstSeen, last_seen=now, execution_count=1, token=token },
+            "resolution=ignore-duplicates,return=minimal"
+        )
     end
 
     if getgenv then getgenv()._vhxToken = token end
 end)
 
--- ── Loader & GameRegistry ─────────────────────────────────────────────────────
+-- ── Loader & GameRegistry ────────────────────────────────────────────────────
 pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))() end)
 
 local GameRegistry = {
