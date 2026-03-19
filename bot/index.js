@@ -41,6 +41,12 @@ client.on('interactionCreate', async interaction => {
   if (!interaction.isChatInputCommand()) return;
   const cmd = map.get(interaction.commandName);
   if (!cmd) return;
+
+  const allowedChannel = process.env.CHANNEL_ID;
+  if (allowedChannel && interaction.channelId !== allowedChannel) {
+    return interaction.reply({ content: `Commands only work in <#${allowedChannel}>`, ephemeral: true });
+  }
+
   try {
     await cmd.execute(interaction);
   } catch (e) {

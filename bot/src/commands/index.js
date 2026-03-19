@@ -196,7 +196,7 @@ export const commands = [
       await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('user_tokens').select('*').order('updated_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No verified tokens.')] });
-      const lines = data.slice(0, 20).map(t => `> 🔑 **@${t.roblox_username}** — \`${t.token}\` *(${timeAgo(t.updated_at)})*`).join('\n');
+      const lines = data.slice(0, 20).map(t => `> 🔑 **@${t.roblox_username}** *(${timeAgo(t.updated_at)})*\n> \`\`\`${t.token}\`\`\``).join('\n');
       const embed = base()
         .setTitle(`🔑 Verified Tokens (${data.length})`)
         .setDescription(lines);
@@ -372,6 +372,7 @@ export const commands = [
               '`/game [name]` — stats for a specific game',
               '`/whois [username]` — look up user by Roblox username',
               '`/changelog` — latest changelog entries',
+              '`/ask [question]` — ask the AI anything',
               '`/help` — show this message',
             ].join('\n'),
           },
@@ -391,6 +392,37 @@ export const commands = [
           }] : []),
         );
       await i.reply({ embeds: [embed], ephemeral: true });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('ask')
+      .setDescription('Ask the AI anything')
+      .addStringOption(o => o.setName('question').setDescription('Your question').setRequired(true)),
+    async execute(i) {
+      await i.deferReply();
+      const question = i.options.getString('question');
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return i.editReply({ embeds: [err('Gemini API key not configured.')] });
+      try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: `You are a helpful assistant for vhxLUA, a Roblox script hub. Answer concisely.\n\n${question}` }] }],
+          }),
+        });
+        const json = await res.json();
+        const answer = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? 'No response.';
+        const truncated = answer.length > 3900 ? answer.slice(0, 3900) + '...' : answer;
+        const embed = base()
+          .setTitle('🤖 AI Answer')
+          .setDescription(`> **${question}**\n\n${truncated}`);
+        await i.editReply({ embeds: [embed] });
+      } catch {
+        await i.editReply({ embeds: [err('Failed to get a response from Gemini.')] });
+      }
     },
   },
 
