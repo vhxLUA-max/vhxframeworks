@@ -2,86 +2,77 @@ local httpRequest = http_request or request or (syn and syn.request) or (fluxus 
 
 if not httpRequest then return end
 
-local Players = game:GetService("Players")
+local Players    = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local player = Players.LocalPlayer
+local LP         = Players.LocalPlayer
 
-if not player then return end
+if not LP then return end
 
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
 
-local GameNames = {
-	[18172550962]     = "Pixel Blade",
-	[18172553902]     = "Pixel Blade",
-	[133884972346775] = "Pixel Blade",
-	[138013005633222] = "Loot Hero",
-	[77439980360504]  = "Loot Hero",
-	[119987266683883] = "Survive Lava",
-	[136801880565837] = "Flick",
-}
+local HDR = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY }
 
-local GameRegistry = {
-	[18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
-	[18172553902]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
-	[133884972346775] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
-	[138013005633222] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
-	[77439980360504]  = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
-	[119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
-	[136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
-}
-
-local BASE_HEADERS = {
-	["apikey"]        = SUPABASE_KEY,
-	["Authorization"] = "Bearer " .. SUPABASE_KEY,
-	["Content-Type"]  = "application/json",
-}
-
-local function supaRequest(endpoint, method, body, prefer)
-	local headers = {}
-	for k, v in pairs(BASE_HEADERS) do headers[k] = v end
-	if prefer then headers["Prefer"] = prefer end
-	pcall(function()
-		httpRequest({
-			Url    = SUPABASE_URL .. endpoint,
-			Method = method,
-			Headers = headers,
-			Body   = type(body) == "string" and body or HttpService:JSONEncode(body),
-		})
-	end)
+local function GET(ep)
+    local ok,r = pcall(httpRequest,{Url=SUPABASE_URL..ep,Method="GET",Headers=HDR})
+    return ok and r or nil
 end
 
-local placeId  = game.PlaceId
-local userId   = player.UserId
-local username = player.Name
-local gameName = GameNames[placeId] or ("Place " .. tostring(placeId))
-local now      = os.date("!%Y-%m-%dT%H:%M:%SZ")
+local function POST(ep, body)
+    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY,["Content-Type"]="application/json",["Prefer"]="resolution=merge-duplicates,return=minimal"}
+    pcall(httpRequest,{Url=SUPABASE_URL..ep,Method="POST",Headers=h,Body=type(body)=="string" and body or HttpService:JSONEncode(body)})
+end
+
+local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX","BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST","NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
+local function genToken()
+    return WORDS[math.random(1,#WORDS)] .. tostring(math.random(1000,9999))
+end
+
+local placeId = game.PlaceId
+local now     = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
 task.spawn(function()
-	supaRequest(
-		"/rest/v1/rpc/increment_execution",
-		"POST",
-		'{"p_place_id":' .. tostring(placeId) .. ',"p_game_name":"' .. gameName .. '"}'
-	)
+    POST("/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
 
-	supaRequest(
-		"/rest/v1/rpc/upsert_user_execution",
-		"POST",
-		{
-			p_roblox_user_id = userId,
-			p_username       = username,
-			p_place_id       = placeId,
-			p_now            = now,
-		}
-	)
+    local res = GET(("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=token,first_seen"):format(LP.UserId, placeId))
+    local token, firstSeen = nil, now
+
+    if res and res.Body then
+        local ok, data = pcall(HttpService.JSONDecode, HttpService, res.Body)
+        if ok and data and #data > 0 then
+            token     = data[1].token
+            firstSeen = data[1].first_seen or now
+        end
+    end
+
+    if not token then
+        token = genToken()
+    end
+
+    POST("/rest/v1/rpc/upsert_user", {
+        p_roblox_user_id = LP.UserId,
+        p_username       = LP.Name,
+        p_place_id       = placeId,
+        p_first_seen     = firstSeen,
+        p_last_seen      = now,
+        p_token          = token,
+    })
+
+    if getgenv then getgenv()._vhxToken = token end
 end)
 
-pcall(function()
-	loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))()
-end)
+pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))() end)
+
+local GameRegistry = {
+    [18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
+    [18172553902]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
+    [133884972346775] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
+    [138013005633222] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
+    [77439980360504]  = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
+    [119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
+    [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
+}
 
 local url = GameRegistry[placeId]
 if not url then return end
-pcall(function()
-	loadstring(game:HttpGet(url))()
-end)
+pcall(function() loadstring(game:HttpGet(url))() end)
