@@ -5,6 +5,19 @@ import { base, err, timeAgo, fmt, COLORS } from '../embeds.js';
 const ADMIN_IDS = (process.env.ADMIN_USER_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = (id) => ADMIN_IDS.includes(id);
 
+const PLACE_NAMES = {
+  18172550962:     'Pixel Blade',
+  18172553902:     'Pixel Blade',
+  133884972346775: 'Pixel Blade',
+  138013005633222: 'Loot Hero',
+  77439980360504:  'Loot Hero',
+  119987266683883: 'Survive Lava',
+  136801880565837: 'Flick',
+  123974602339071: 'UNC Tester',
+};
+
+const gameName = (r) => r.game_name || PLACE_NAMES[r.place_id] || `Place ${r.place_id}`;
+
 const logAction = async (i, action, details) => {
   await supabase.from('audit_log').insert({ action, details, username: i.user.username }).catch(() => {});
 };
@@ -79,7 +92,7 @@ export const commands = [
       const earliest = rows.reduce((a, b) => new Date(a.first_seen) < new Date(b.first_seen) ? a : b).first_seen;
       const latest   = rows.reduce((a, b) => new Date(a.last_seen)  > new Date(b.last_seen)  ? a : b).last_seen;
       const gameLines = rows.sort((a, b) => b.execution_count - a.execution_count)
-        .map(r => `> 🎮 **${r.game_name ?? `Place ${r.place_id}`}** — \`${fmt(r.execution_count)} execs\``).join('\n');
+        .map(r => `> 🎮 **${gameName(r)}** — \`${fmt(r.execution_count)} execs\``).join('\n');
       const embed = base()
         .setTitle(`👤 ${tokenRow.roblox_username}`)
         .setURL(`https://www.roblox.com/users/${tokenRow.roblox_user_id}/profile`)
@@ -110,7 +123,7 @@ export const commands = [
       const earliest = rows.reduce((a, b) => new Date(a.first_seen) < new Date(b.first_seen) ? a : b).first_seen;
       const latest   = rows.reduce((a, b) => new Date(a.last_seen)  > new Date(b.last_seen)  ? a : b).last_seen;
       const gameLines = rows.sort((a, b) => b.execution_count - a.execution_count)
-        .map(r => `> 🎮 **${r.game_name ?? `Place ${r.place_id}`}** — \`${fmt(r.execution_count)} execs\``).join('\n');
+        .map(r => `> 🎮 **${gameName(r)}** — \`${fmt(r.execution_count)} execs\``).join('\n');
       const embed = base()
         .setTitle(`👤 ${rows[0].username}`)
         .setURL(`https://www.roblox.com/users/${rows[0].roblox_user_id}/profile`)
