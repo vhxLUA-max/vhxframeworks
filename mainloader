@@ -2,9 +2,9 @@ local httpRequest = http_request or request or (syn and syn.request) or (fluxus 
 
 if not httpRequest then return end
 
-local Players    = game:GetService("Players")
+local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local LP         = Players.LocalPlayer
+local LP          = Players.LocalPlayer
 
 if not LP then return end
 
@@ -14,13 +14,13 @@ local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 local HDR = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY }
 
 local function GET(ep)
-    local ok,r = pcall(httpRequest,{Url=SUPABASE_URL..ep,Method="GET",Headers=HDR})
+    local ok, r = pcall(httpRequest, { Url=SUPABASE_URL..ep, Method="GET", Headers=HDR })
     return ok and r or nil
 end
 
 local function POST(ep, body)
-    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY,["Content-Type"]="application/json",["Prefer"]="resolution=merge-duplicates,return=minimal"}
-    pcall(httpRequest,{Url=SUPABASE_URL..ep,Method="POST",Headers=h,Body=type(body)=="string" and body or HttpService:JSONEncode(body)})
+    local h = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY, ["Content-Type"]="application/json", ["Prefer"]="resolution=merge-duplicates,return=minimal" }
+    pcall(httpRequest, { Url=SUPABASE_URL..ep, Method="POST", Headers=h, Body=type(body)=="string" and body or HttpService:JSONEncode(body) })
 end
 
 local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX","BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST","NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
@@ -31,6 +31,18 @@ end
 local placeId = game.PlaceId
 local now     = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
+-- ── Ban check (blocking — must pass before any script loads) ──────────────────
+local banRes = GET(("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId))
+if banRes and banRes.Body then
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, banRes.Body)
+    if ok and data and #data > 0 then
+        local reason = (data[1].reason and data[1].reason ~= "") and data[1].reason or "No reason provided."
+        warn("[vhxLUA] You are banned. Reason: " .. reason)
+        return
+    end
+end
+
+-- ── Logger (async — non-blocking) ────────────────────────────────────────────
 task.spawn(function()
     POST("/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
 
@@ -45,22 +57,24 @@ task.spawn(function()
         end
     end
 
-    if not token then
-        token = genToken()
-    end
+    if not token then token = genToken() end
 
-    POST("/rest/v1/rpc/upsert_user", {
-        p_roblox_user_id = LP.UserId,
-        p_username       = LP.Name,
-        p_place_id       = placeId,
-        p_first_seen     = firstSeen,
-        p_last_seen      = now,
-        p_token          = token,
-    })
+    local upsertRes = pcall(function()
+        POST("/rest/v1/rpc/upsert_user", {
+            p_roblox_user_id = LP.UserId,
+            p_username       = LP.Name,
+            p_place_id       = placeId,
+            p_first_seen     = firstSeen,
+            p_last_seen      = now,
+            p_token          = token,
+        })
+    end)
+    print("[vhx] upsert ok:", tostring(upsertRes))
 
     if getgenv then getgenv()._vhxToken = token end
 end)
 
+-- ── Loader & GameRegistry ─────────────────────────────────────────────────────
 pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))() end)
 
 local GameRegistry = {
@@ -71,6 +85,7 @@ local GameRegistry = {
     [77439980360504]  = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loothero",
     [119987266683883] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/survivelavaforbr",
     [136801880565837] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/flick",
+    [123974602339071] = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/unctester",
 }
 
 local url = GameRegistry[placeId]
