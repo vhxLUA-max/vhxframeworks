@@ -5,6 +5,10 @@ import { base, err, timeAgo, fmt, COLORS } from '../embeds.js';
 const ADMIN_IDS = (process.env.ADMIN_USER_IDS ?? '').split(',').map(s => s.trim()).filter(Boolean);
 const isAdmin = (id) => ADMIN_IDS.includes(id);
 
+const logAction = async (i, action, details) => {
+  await supabase.from('audit_log').insert({ action, details, username: i.user.username }).catch(() => {});
+};
+
 const GAMES = ['Pixel Blade', 'Loot Hero', 'Flick', 'Survive Lava'];
 
 export const commands = [
@@ -239,6 +243,111 @@ export const commands = [
           { name: 'Title', value: title, inline: false },
           ...(body ? [{ name: 'Description', value: body, inline: false }] : []),
         );
+      await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('softban')
+      .setDescription('Temporarily ban a user with auto-unban [Admin only]')
+      .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
+      .addIntegerOption(o => o.setName('duration').setDescription('Duration').setRequired(true).setMinValue(1))
+      .addStringOption(o => o.setName('unit').setDescription('Unit').setRequired(true).addChoices({ name: 'hours', value: 'hours' }, { name: 'days', value: 'days' }))
+      .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply();
+      const username = i.options.getString('username');
+      const duration = i.options.getInteger('duration');
+      const unit     = i.options.getString('unit');
+      const reason   = i.options.getString('reason') ?? null;
+      const ms       = duration * (unit === 'hours' ? 3600000 : 86400000);
+      const unbanAt  = new Date(Date.now() + ms).toISOString();
+
+      const { data: rows } = await supabase.from('unique_users').select('roblox_user_id,username').ilike('username', username).limit(1);
+      const user = rows?.[0];
+      if (!user) return i.editReply({ embeds: [err(`**${username}** not found. They must run a script in-game first.`)] });
+
+      const { error } = await supabase.from('banned_users').insert({
+        roblox_user_id: user.roblox_user_id,
+        username: user.username,
+        reason: reason ? `[SOFTBAN until ${new Date(unbanAt).toUTCString()}] ${reason}` : `[SOFTBAN until ${new Date(unbanAt).toUTCString()}]`,
+        unban_at: unbanAt,
+      });
+      if (error) return i.editReply({ embeds: [err(error.message)] });
+
+      await logAction(i, 'softban', { username: user.username, roblox_user_id: user.roblox_user_id, duration: `${duration} ${unit}`, reason, unban_at: unbanAt });
+
+      const embed = base(COLORS.warning)
+        .setTitle('⏱️ Softban Applied')
+        .addFields(
+          { name: 'User',      value: `@${user.username}`, inline: true },
+          { name: 'Duration',  value: `${duration} ${unit}`, inline: true },
+          { name: 'Unbans At', value: new Date(unbanAt).toUTCString(), inline: false },
+          { name: 'Reason',    value: reason ?? 'No reason provided', inline: false },
+        );
+      await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('banlog')
+      .setDescription('Show ban audit trail [Admin only]')
+      .addIntegerOption(o => o.setName('limit').setDescription('Number of entries (default 10)').setRequired(false).setMinValue(1).setMaxValue(50)),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply();
+      const limit = i.options.getInteger('limit') ?? 10;
+      const { data } = await supabase.from('audit_log').select('*').in('action', ['ban_user', 'unban_user', 'softban']).order('created_at', { ascending: false }).limit(limit);
+      if (!data?.length) return i.editReply({ embeds: [base().setDescription('No ban actions logged yet.')] });
+
+      const ACTION_EMOJI = { ban_user: '🔨', unban_user: '✅', softban: '⏱️' };
+      const lines = data.map(e => {
+        const detail = e.details ? `@${e.details.username ?? '?'}${e.details.reason ? ` — ${e.details.reason}` : ''}` : '—';
+        return `${ACTION_EMOJI[e.action] ?? '•'} **${e.action}** ${detail} *(${timeAgo(e.created_at)})*`;
+      }).join('\n');
+
+      const embed = base()
+        .setTitle(`📋 Ban Log (last ${data.length})`)
+        .setDescription(lines);
+      await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('suspicious')
+      .setDescription('Find users with unusual execution patterns [Admin only]')
+      .addIntegerOption(o => o.setName('threshold').setDescription('Min executions to flag (default 500)').setRequired(false).setMinValue(1)),
+    async execute(i) {
+      if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
+      await i.deferReply();
+      const threshold = i.options.getInteger('threshold') ?? 500;
+      const since1h   = new Date(Date.now() - 3600000).toISOString();
+
+      const { data } = await supabase
+        .from('unique_users')
+        .select('roblox_user_id,username,execution_count,last_seen,first_seen')
+        .gte('last_seen', since1h)
+        .gte('execution_count', threshold)
+        .order('execution_count', { ascending: false })
+        .limit(15);
+
+      if (!data?.length) return i.editReply({ embeds: [base(COLORS.success).setDescription(`✅ No users found with ${fmt(threshold)}+ executions in the last hour.`)] });
+
+      const lines = data.map(u => {
+        const sessionMs = new Date(u.last_seen).getTime() - new Date(u.first_seen).getTime();
+        const sessionMin = Math.max(1, Math.round(sessionMs / 60000));
+        const rate = Math.round(u.execution_count / sessionMin);
+        return `**@${u.username}** — ${fmt(u.execution_count)} execs · ~${rate}/min · last seen ${timeAgo(u.last_seen)}`;
+      }).join('\n');
+
+      const embed = base(COLORS.danger)
+        .setTitle(`🚨 Suspicious Users (${data.length} flagged)`)
+        .setDescription(lines)
+        .setFooter({ text: `Threshold: ${fmt(threshold)}+ execs · active last 1h` });
       await i.editReply({ embeds: [embed] });
     },
   },
