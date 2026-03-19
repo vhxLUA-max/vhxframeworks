@@ -24,6 +24,16 @@ const logAction = async (i, action, details) => {
 
 const GAMES = ['Pixel Blade', 'Loot Hero', 'Flick', 'Survive Lava'];
 
+const LOADER = 'loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/mainloader"))()';
+
+const SCRIPTS = [
+  { name: 'Pixel Blade',  placeIds: [18172550962, 18172553902, 133884972346775], loader: LOADER },
+  { name: 'Loot Hero',    placeIds: [138013005633222, 77439980360504],            loader: LOADER },
+  { name: 'Flick',        placeIds: [136801880565837],                            loader: LOADER },
+  { name: 'Survive Lava', placeIds: [119987266683883],                            loader: LOADER },
+  { name: 'UNC Tester',   placeIds: [123974602339071],                            loader: 'loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/unctester"))()' },
+];
+
 export const commands = [
 
   {
@@ -387,6 +397,7 @@ export const commands = [
               '`/game [name]` — stats for a specific game',
               '`/whois [username]` — look up user by Roblox username',
               '`/changelog` — latest changelog entries',
+              '`/script [game?]` — show all scripts and their loaders',
               '`/ask [question]` — ask the AI anything',
               '`/help` — show this message',
             ].join('\n'),
@@ -452,6 +463,41 @@ export const commands = [
         .setTitle('🤖 AI Answer')
         .setDescription(`> **${question}**\n\n${truncated}`);
       await i.editReply({ embeds: [embed] });
+    },
+  },
+
+  {
+    data: new SlashCommandBuilder()
+      .setName('script')
+      .setDescription('Show all supported scripts and their loaders')
+      .addStringOption(o => o.setName('game').setDescription('Get script for a specific game').setRequired(false)
+        .addChoices(...SCRIPTS.map(s => ({ name: s.name, value: s.name })))),
+    async execute(i) {
+      await i.deferReply({ ephemeral: true });
+      const selected = i.options.getString('game');
+
+      if (selected) {
+        const script = SCRIPTS.find(s => s.name === selected);
+        if (!script) return i.editReply({ embeds: [err(`Script not found for **${selected}**`)] });
+        const embed = base()
+          .setTitle(`📜 ${script.name}`)
+          .setDescription([
+            `> 🎮 **Game** — ${script.name}`,
+            `> 🆔 **Place IDs** — \`${script.placeIds.join(', ')}\``,
+          ].join('\n'));
+        await i.editReply({ embeds: [embed] });
+        await i.followUp({ content: `**${script.name} loader:**\n\`\`\`lua\n${script.loader}\n\`\`\``, ephemeral: true });
+        return;
+      }
+
+      const embed = base()
+        .setTitle('📜 vhxLUA Scripts')
+        .setDescription(SCRIPTS.map(s => `> 🎮 **${s.name}** — \`${s.placeIds.length} place${s.placeIds.length > 1 ? 's' : ''}\``).join('\n'))
+        .setFooter({ text: 'Use /script [game] to get the loader for a specific game' });
+      await i.editReply({ embeds: [embed] });
+      for (const s of SCRIPTS) {
+        await i.followUp({ content: `**${s.name}:**\n\`\`\`lua\n${s.loader}\n\`\`\``, ephemeral: true });
+      }
     },
   },
 
