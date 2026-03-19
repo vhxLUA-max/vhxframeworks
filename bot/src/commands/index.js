@@ -65,11 +65,11 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('user')
+      .setName('user').setDefaultMemberPermissions(0)
       .setDescription('Look up a user by their token')
       .addStringOption(o => o.setName('token').setDescription('User token (e.g. VOID3847)').setRequired(true)),
     async execute(i) {
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const token = i.options.getString('token').toUpperCase();
       const { data: tokenRow } = await supabase.from('user_tokens').select('roblox_user_id,roblox_username').eq('token', token).maybeSingle();
       if (!tokenRow) return i.editReply({ embeds: [err('Token not found.')] });
@@ -125,13 +125,13 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('ban')
+      .setName('ban').setDefaultMemberPermissions(0)
       .setDescription('Ban a user from vhxLUA scripts [Admin only]')
       .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
       .addStringOption(o => o.setName('reason').setDescription('Ban reason').setRequired(false)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const username = i.options.getString('username');
       const reason   = i.options.getString('reason') ?? null;
       const { data: rows } = await supabase.from('unique_users').select('roblox_user_id,username').ilike('username', username).limit(1);
@@ -152,12 +152,12 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('unban')
+      .setName('unban').setDefaultMemberPermissions(0)
       .setDescription('Unban a user [Admin only]')
       .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const username = i.options.getString('username');
       const { data: rows } = await supabase.from('banned_users').select('id,username').ilike('username', username).limit(1);
       if (!rows?.length) return i.editReply({ embeds: [err(`**${username}** is not banned.`)] });
@@ -168,11 +168,11 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('bans')
+      .setName('bans').setDefaultMemberPermissions(0)
       .setDescription('List all banned users [Admin only]'),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('banned_users').select('*').order('created_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No banned users.')] });
       const lines = data.slice(0, 20).map(b => `**@${b.username ?? b.roblox_user_id}** — ${b.reason ?? 'No reason'} *(${timeAgo(b.created_at)})*`).join('\n');
@@ -185,11 +185,11 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('tokens')
+      .setName('tokens').setDefaultMemberPermissions(0)
       .setDescription('List all verified tokens [Admin only]'),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('user_tokens').select('*').order('updated_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No verified tokens.')] });
       const lines = data.slice(0, 20).map(t => `**@${t.roblox_username}** — \`${t.token}\` *(${timeAgo(t.updated_at)})*`).join('\n');
@@ -219,7 +219,7 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('addchangelog')
+      .setName('addchangelog').setDefaultMemberPermissions(0)
       .setDescription('Add a changelog entry [Admin only]')
       .addStringOption(o => o.setName('game').setDescription('Game name').setRequired(true).addChoices(...[...GAMES, 'General'].map(g => ({ name: g, value: g }))))
       .addStringOption(o => o.setName('type').setDescription('Entry type').setRequired(true).addChoices({ name: 'new', value: 'new' }, { name: 'update', value: 'update' }, { name: 'fix', value: 'fix' }))
@@ -227,7 +227,7 @@ export const commands = [
       .addStringOption(o => o.setName('body').setDescription('Description').setRequired(false)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const game  = i.options.getString('game');
       const type  = i.options.getString('type');
       const title = i.options.getString('title');
@@ -249,7 +249,7 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('softban')
+      .setName('softban').setDefaultMemberPermissions(0)
       .setDescription('Temporarily ban a user with auto-unban [Admin only]')
       .addStringOption(o => o.setName('username').setDescription('Roblox username').setRequired(true))
       .addIntegerOption(o => o.setName('duration').setDescription('Duration').setRequired(true).setMinValue(1))
@@ -257,7 +257,7 @@ export const commands = [
       .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const username = i.options.getString('username');
       const duration = i.options.getInteger('duration');
       const unit     = i.options.getString('unit');
@@ -293,12 +293,12 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('banlog')
+      .setName('banlog').setDefaultMemberPermissions(0)
       .setDescription('Show ban audit trail [Admin only]')
       .addIntegerOption(o => o.setName('limit').setDescription('Number of entries (default 10)').setRequired(false).setMinValue(1).setMaxValue(50)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const limit = i.options.getInteger('limit') ?? 10;
       const { data } = await supabase.from('audit_log').select('*').in('action', ['ban_user', 'unban_user', 'softban']).order('created_at', { ascending: false }).limit(limit);
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No ban actions logged yet.')] });
@@ -318,12 +318,12 @@ export const commands = [
 
   {
     data: new SlashCommandBuilder()
-      .setName('suspicious')
+      .setName('suspicious').setDefaultMemberPermissions(0)
       .setDescription('Find users with unusual execution patterns [Admin only]')
       .addIntegerOption(o => o.setName('threshold').setDescription('Min executions to flag (default 500)').setRequired(false).setMinValue(1)),
     async execute(i) {
       if (!isAdmin(i.user.id)) return i.reply({ embeds: [err('Admin only.')], ephemeral: true });
-      await i.deferReply();
+      await i.deferReply({ ephemeral: true });
       const threshold = i.options.getInteger('threshold') ?? 500;
       const since1h   = new Date(Date.now() - 3600000).toISOString();
 
