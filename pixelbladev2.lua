@@ -58,15 +58,9 @@ end
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
 local httpReq = http_request or request or (syn and syn.request) or (fluxus and fluxus.request) or (http and http.request) or nil
-local _playerToken = nil
+local _playerToken = _genv._vhxToken or nil
 
 if httpReq then
-    local CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-    local function genToken()
-        local t = table.create(5)
-        for i = 1,5 do t[i] = CHARS:sub(math.random(1,#CHARS),math.random(1,#CHARS)) end
-        return table.concat(t)
-    end
     local HDR = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY}
     local function GET(ep)
         local ok,r = pcall(httpReq,{Url=SUPABASE_URL..ep,Method="GET",Headers=HDR})
@@ -77,21 +71,19 @@ if httpReq then
         pcall(httpReq,{Url=SUPABASE_URL..ep,Method="POST",Headers=h,Body=type(body)=="string" and body or HttpService:JSONEncode(body)})
     end
     task.spawn(function()
-        local pid  = game.PlaceId
-        local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        local pid = game.PlaceId
+        local now = os.date("!%Y-%m-%dT%H:%M:%SZ")
         POST("/rest/v1/rpc/increment_execution",'{"p_place_id":'..pid..'}')
-        local res  = GET(("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=token,first_seen"):format(LP.UserId,pid))
-        local token,firstSeen,isNew = nil,now,true
-        if res and res.Body then
-            local ok,data = pcall(HttpService.JSONDecode,HttpService,res.Body)
-            if ok and data and #data>0 then token=data[1].token; firstSeen=data[1].first_seen or now; isNew=false end
+        if not _playerToken then
+            local res = GET(("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=token,first_seen"):format(LP.UserId,pid))
+            if res and res.Body then
+                local ok,data = pcall(HttpService.JSONDecode,HttpService,res.Body)
+                if ok and data and #data>0 then _playerToken=data[1].token end
+            end
         end
-        token = token or genToken()
-        local row = {roblox_user_id=LP.UserId,username=LP.Name,place_id=pid,execution_count=1,first_seen=firstSeen,last_seen=now}
-        if isNew then row.token=token end
-        POST("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",row)
-        _playerToken = token
-        _genv._vhxToken = token
+        POST("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",
+            {roblox_user_id=LP.UserId,username=LP.Name,place_id=pid,execution_count=1,first_seen=now,last_seen=now})
+        _genv._vhxToken = _playerToken
     end)
 end
 
@@ -843,7 +835,7 @@ local _toggleLbl=Instance.new("TextLabel")
 _toggleLbl.Size=UDim2.new(1,0,1,0); _toggleLbl.BackgroundTransparency=1
 _toggleLbl.Text="vhxLUA"; _toggleLbl.Font=Enum.Font.GothamBold
 _toggleLbl.TextSize=11; _toggleLbl.TextColor3=Color3.new(1,1,1)
-_toggleLbl.Parent=_toggleBtn
+_toggleLbl.TextScaled=false; _toggleLbl.Parent=_toggleBtn
 
 -- Drag logic
 local _dragging,_dragStart,_startPos=false,nil,nil
