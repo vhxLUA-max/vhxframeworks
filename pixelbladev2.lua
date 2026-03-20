@@ -733,10 +733,11 @@ local function rejoin()
     task.delay(2, function() pcall(function() TS:TeleportToPlaceInstance(game.PlaceId, game.JobId, LP) end) end)
 end
 
--- ── Window ────────────────────────────────────────────────────────────────────
-local Win = Fluent:CreateWindow({
+
+-- ── Window — matches working Fluent template exactly ─────────────────────────
+local Window = Fluent:CreateWindow({
     Title = "Pixel Blade",
-    SubTitle = "By vhxLUA",
+    SubTitle = "by vhxLUA",
     TabWidth = 160,
     Size = UDim2.fromOffset(IsMobile and 480 or 580, IsMobile and 400 or 460),
     Acrylic = not _isLowEnd,
@@ -746,117 +747,130 @@ local Win = Fluent:CreateWindow({
 
 -- ── Tabs ──────────────────────────────────────────────────────────────────────
 local Tabs = {
-    Combat   = Win:AddTab({Title="Combat",   Icon="sword"   }),
-    Raid     = Win:AddTab({Title="Raid",     Icon="flame"   }),
-    ESP      = Win:AddTab({Title="ESP",      Icon="eye"     }),
-    Movement = Win:AddTab({Title="Movement", Icon="zap"     }),
-    Potions  = Win:AddTab({Title="Potions",  Icon="heart"   }),
-    Misc     = Win:AddTab({Title="Misc",     Icon="shield"  }),
-    Settings = Win:AddTab({Title="Settings", Icon="settings"}),
+    Combat   = Window:AddTab({ Title = "Combat",   Icon = "sword"    }),
+    Raid     = Window:AddTab({ Title = "Raid",     Icon = "flame"    }),
+    ESP      = Window:AddTab({ Title = "ESP",      Icon = "eye"      }),
+    Movement = Window:AddTab({ Title = "Movement", Icon = "zap"      }),
+    Potions  = Window:AddTab({ Title = "Potions",  Icon = "heart"    }),
+    Misc     = Window:AddTab({ Title = "Misc",     Icon = "shield"   }),
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
 }
-local CT=Tabs.Combat; local RT=Tabs.Raid; local ET=Tabs.ESP
-local MT=Tabs.Movement; local PT=Tabs.Potions; local MiT=Tabs.Misc; local ST=Tabs.Settings
+
+-- ── SaveManager/InterfaceManager must be set BEFORE building sections ─────────
+SaveManager:SetLibrary(Fluent)
+InterfaceManager:SetLibrary(Fluent)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreFlags({"AutoReplay"})
 
 -- ── Combat Tab ────────────────────────────────────────────────────────────────
-CT:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
-local AuraToggle = CT:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=false,Callback=function(v) S.KillAura=v end})
-CT:AddSlider("AuraRange",{Title="Aura Range",Min=1,Max=1000,Default=100,Suffix=" studs",Callback=function(v) S.AuraRange=v end})
-CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=150,Suffix=" ms",Callback=function(v) S.AttackSpeed=v/1000 end})
-CT:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default="Nearest",Callback=function(v) S.AuraMode=v end})
-CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Callback=function(v) S.BurstCooldown=v end})
-CT:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=false,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
-CT:AddSlider("TweenSpeed",{Title="Tween Speed",Min=1,Max=100,Default=12,Suffix=" ms",Callback=function(v) S.TweenSpeed=v/100 end})
-CT:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
-    if v then local ev=RS.remotes and RS.remotes:FindFirstChild("gameEndVote"); if ev then pcall(ev.FireServer,ev,"replay") end end
-end})
+Tabs.Combat:AddParagraph({ Title = "Boss Warning", Content = "Disable Kill Aura during boss spawn cutscenes." })
+local AuraToggle = Tabs.Combat:AddToggle("KillAura", { Title = "Kill Aura", Description = "Hits nearby enemies", Default = false, Callback = function(v) S.KillAura = v end })
+Tabs.Combat:AddSlider("AuraRange",       { Title = "Aura Range",       Min = 1,  Max = 1000, Default = 100, Suffix = " studs", Callback = function(v) S.AuraRange = v end })
+Tabs.Combat:AddSlider("AttackInterval",  { Title = "Attack Interval",  Min = 80, Max = 2000, Default = 150, Suffix = " ms",    Callback = function(v) S.AttackSpeed = v/1000 end })
+Tabs.Combat:AddDropdown("AuraMode",      { Title = "Aura Mode",        Values = {"Nearest","Cone","Burst"}, Default = "Nearest", Callback = function(v) S.AuraMode = v end })
+Tabs.Combat:AddSlider("BurstCooldown",   { Title = "Burst Cooldown",   Min = 1,  Max = 30,   Default = 5,   Suffix = "s",       Callback = function(v) S.BurstCooldown = v end })
+Tabs.Combat:AddToggle("AutoTween",       { Title = "Auto Tween",       Description = "Glide to nearest enemy", Default = false, Callback = function(v) S.AutoTween = v; if not v then stopTween() end end })
+Tabs.Combat:AddSlider("TweenSpeed",      { Title = "Tween Speed",      Min = 1,  Max = 100,  Default = 12,  Suffix = " ms",    Callback = function(v) S.TweenSpeed = v/100 end })
+Tabs.Combat:AddToggle("AutoReplay",      { Title = "Auto Replay",      Default = false, Callback = function(v)
+    if v then
+        local rem = RS:FindFirstChild("remotes")
+        local ev = rem and rem:FindFirstChild("gameEndVote")
+        if ev then pcall(ev.FireServer, ev, "replay") end
+    end
+end })
 
 -- ── Raid Tab ──────────────────────────────────────────────────────────────────
-RT:AddParagraph({Title="Note",Content="Eye of Smite is the best sword for Raid mode."})
-RT:AddToggle("RaidAura",{Title="Raid Aura Kill",Default=false,Callback=function(v) S.RaidAura=v end})
-RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=100,Suffix=" studs",Callback=function(v) S.RaidAuraRange=v end})
-RT:AddDropdown("RaidAuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default="Nearest",Callback=function(v) S.RaidAuraMode=v end})
-RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Callback=function(v) S.RaidBurstCD=v end})
+Tabs.Raid:AddParagraph({ Title = "Note", Content = "Eye of Smite is the best sword for Raid mode." })
+Tabs.Raid:AddToggle("RaidAura",      { Title = "Raid Aura Kill",   Default = false,      Callback = function(v) S.RaidAura = v end })
+Tabs.Raid:AddSlider("RaidAuraRange", { Title = "Raid Aura Range",  Min = 10, Max = 500, Default = 100, Suffix = " studs", Callback = function(v) S.RaidAuraRange = v end })
+Tabs.Raid:AddDropdown("RaidAuraMode",{ Title = "Aura Mode",        Values = {"Nearest","Cone","Burst"}, Default = "Nearest", Callback = function(v) S.RaidAuraMode = v end })
+Tabs.Raid:AddSlider("RaidBurstCD",   { Title = "Burst Cooldown",   Min = 1,  Max = 30,  Default = 5,   Suffix = "s",       Callback = function(v) S.RaidBurstCD = v end })
 
 -- ── ESP Tab ───────────────────────────────────────────────────────────────────
-ET:AddToggle("ESPBoxes",{Title="ESP Boxes",Description="Boxes + health bars",Default=false,Callback=function(v) S.ESP=v; if not v and not S.Tracers then clearESP() end end})
-ET:AddToggle("Tracers",{Title="Tracers",Description="Lines to enemies",Default=false,Callback=function(v) S.Tracers=v; if not v and not S.ESP then clearESP() end end})
-ET:AddToggle("ShowNames",{Title="Show Names",Default=true,Callback=function(v) S.ShowNames=v end})
-ET:AddToggle("ShowHealth",{Title="Show Health",Default=true,Callback=function(v) S.ShowHealth=v end})
-ET:AddToggle("ShowDistance",{Title="Show Distance",Default=true,Callback=function(v) S.ShowDistance=v end})
-ET:AddColorpicker("ESPColor",{Title="ESP Color",Default=Color3.fromRGB(255,0,0),Callback=function(v) S.ESPColor=v end})
-ET:AddColorpicker("TracerColor",{Title="Tracer Color",Default=Color3.fromRGB(0,255,0),Callback=function(v) S.TracerColor=v end})
-ET:AddDropdown("TracerOrigin",{Title="Tracer Origin",Values={"Bottom","Center"},Default="Bottom",Callback=function(v) S.TracerOrigin=v end})
+Tabs.ESP:AddToggle("ESPBoxes",     { Title = "ESP Boxes",    Description = "Boxes + health bars",   Default = false, Callback = function(v) S.ESP = v;     if not v and not S.Tracers then clearESP() end end })
+Tabs.ESP:AddToggle("Tracers",      { Title = "Tracers",      Description = "Lines to enemies",      Default = false, Callback = function(v) S.Tracers = v; if not v and not S.ESP    then clearESP() end end })
+Tabs.ESP:AddToggle("ShowNames",    { Title = "Show Names",   Default = true,  Callback = function(v) S.ShowNames    = v end })
+Tabs.ESP:AddToggle("ShowHealth",   { Title = "Show Health",  Default = true,  Callback = function(v) S.ShowHealth   = v end })
+Tabs.ESP:AddToggle("ShowDistance", { Title = "Show Distance",Default = true,  Callback = function(v) S.ShowDistance = v end })
+Tabs.ESP:AddColorpicker("ESPColor",    { Title = "ESP Color",    Default = Color3.fromRGB(255,0,0), Callback = function(v) S.ESPColor    = v end })
+Tabs.ESP:AddColorpicker("TracerColor", { Title = "Tracer Color", Default = Color3.fromRGB(0,255,0), Callback = function(v) S.TracerColor = v end })
+Tabs.ESP:AddDropdown("TracerOrigin",   { Title = "Tracer Origin",Values = {"Bottom","Center"}, Default = "Bottom", Callback = function(v) S.TracerOrigin = v end })
 
 -- ── Movement Tab ──────────────────────────────────────────────────────────────
-MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=50,Suffix=" sp",Callback=function(v) S.WalkSpeed=v; applySpeed() end})
-MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=100,Suffix=" jp",Callback=function(v) S.JumpPower=v; applySpeed() end})
-MT:AddToggle("FlyToggle",{Title="Fly",Description=IsMobile and "Thumbstick + A/B" or IsConsole and "Thumbstick + A/B" or "WASD + Space/LCtrl",Default=false,Callback=function(v) if v then startFly() else stopFly() end end})
-MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=50,Suffix=" sp",Callback=function(v) S.FlySpeed=v end})
+Tabs.Movement:AddSlider("WalkSpeed", { Title = "Walk Speed", Min = 16, Max = 500, Default = 50,  Suffix = " sp", Callback = function(v) S.WalkSpeed = v; applySpeed() end })
+Tabs.Movement:AddSlider("JumpPower", { Title = "Jump Power", Min = 50, Max = 500, Default = 100, Suffix = " jp", Callback = function(v) S.JumpPower = v; applySpeed() end })
+Tabs.Movement:AddToggle("FlyToggle", { Title = "Fly",
+    Description = IsMobile and "Thumbstick + A(up)/B(down)" or IsConsole and "Thumbstick + A(up)/B(down)" or "WASD + Space(up) / LCtrl(down)",
+    Default = false, Callback = function(v) if v then startFly() else stopFly() end end })
+Tabs.Movement:AddSlider("FlySpeed", { Title = "Fly Speed", Min = 10, Max = 300, Default = 50, Suffix = " sp", Callback = function(v) S.FlySpeed = v end })
 
 -- ── Potions Tab ───────────────────────────────────────────────────────────────
-PT:AddToggle("AutoDrink",{Title="Auto Drink",Description="Drink when HP drops below threshold",Default=false,Callback=function(v) S.AutoDrink=v; if v then startDrink() else stopDrink() end end})
-PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=50,Suffix="%",Callback=function(v) S.DrinkThreshold=v end})
-PT:AddDropdown("DrinkPotions",{Title="Potions to Drink",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.DrinkPotions=v end})
-PT:AddToggle("AutoBuy",{Title="Auto Buy",Description="Purchase potions on a timer",Default=false,Callback=function(v) S.AutoBuy=v; if v then startBuy() else stopBuy() end end})
-PT:AddDropdown("BuyPotions",{Title="Potions to Buy",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.BuyPotions=v end})
-PT:AddDropdown("BuyInterval",{Title="Buy Interval",Values=INTERVAL_STRS,Default="10s",Callback=function(v)
-    for i,s in ipairs(INTERVAL_STRS) do if s==v then S.BuyInterval=INTERVAL_OPTIONS[i]; break end end
-end})
-PT:AddInput("BuyQty",{Title="Qty per Buy",Default="1",Numeric=true,Callback=function(v) local n=tonumber(v); if n and n>=1 then S.BuyQty=math.floor(n) end end})
-PT:AddInput("BuyMax",{Title="Max Purchases (0=inf)",Default="0",Numeric=true,Callback=function(v) local n=tonumber(v); S.BuyMax=(n and n>=0) and math.floor(n) or 0 end})
+Tabs.Potions:AddToggle("AutoDrink",     { Title = "Auto Drink",  Description = "Drink when HP drops below threshold", Default = false, Callback = function(v) S.AutoDrink = v; if v then startDrink() else stopDrink() end end })
+Tabs.Potions:AddSlider("DrinkThreshold",{ Title = "HP Threshold", Min = 1, Max = 100, Default = 50, Suffix = "%", Callback = function(v) S.DrinkThreshold = v end })
+Tabs.Potions:AddDropdown("DrinkPotions",{ Title = "Potions to Drink", Values = POTION_NAMES, Multi = true, Default = {}, Callback = function(v) S.DrinkPotions = v end })
+Tabs.Potions:AddToggle("AutoBuy",       { Title = "Auto Buy", Description = "Buy potions on a timer", Default = false, Callback = function(v) S.AutoBuy = v; if v then startBuy() else stopBuy() end end })
+Tabs.Potions:AddDropdown("BuyPotions",  { Title = "Potions to Buy",   Values = POTION_NAMES, Multi = true, Default = {}, Callback = function(v) S.BuyPotions = v end })
+Tabs.Potions:AddDropdown("BuyInterval", { Title = "Buy Interval",     Values = INTERVAL_STRS, Default = "10s", Callback = function(v)
+    for i,s in ipairs(INTERVAL_STRS) do if s == v then S.BuyInterval = INTERVAL_OPTIONS[i]; break end end
+end })
+Tabs.Potions:AddInput("BuyQty", { Title = "Qty per Buy",           Default = "1", Numeric = true, Callback = function(v) local n=tonumber(v); if n and n>=1 then S.BuyQty=math.floor(n) end end })
+Tabs.Potions:AddInput("BuyMax", { Title = "Max Purchases (0=inf)", Default = "0", Numeric = true, Callback = function(v) local n=tonumber(v); S.BuyMax=(n and n>=0) and math.floor(n) or 0 end })
 
 -- ── Misc Tab ──────────────────────────────────────────────────────────────────
-MiT:AddToggle("AntiAFK",{Title="Anti-AFK",Description="Prevents idle kick",Default=false,Callback=function(v) setAFK(v) end})
-MiT:AddToggle("AutoOptimize",{Title="Auto Optimize",Description="Auto-lower graphics when FPS drops",Default=_isLowEnd,Callback=function(v) S.AutoOptimize=v; if v then optimizeGraphics() end end})
-MiT:AddButton({Title="Optimize Graphics",Description="Lower quality, disable shadows and FX",Callback=optimizeGraphics})
-MiT:AddButton({Title="Clear Particles",Description="Disable all particle emitters and trails",Callback=function()
-    for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end end
-end})
-MiT:AddButton({Title="Claim All Codes",Description="Attempts all "..#Codes.." known codes",Callback=function()
-    task.spawn(function() claimed=false; claim() end)
-end})
-MiT:AddButton({Title="Rejoin Server",Description="Reconnects to a fresh instance",Callback=function()
-    task.delay(0.5, rejoin)
-end})
-MiT:AddParagraph({Title="Device",Content=string.format("%s  |  Low-end: %s",
+Tabs.Misc:AddToggle("AntiAFK",      { Title = "Anti-AFK",       Description = "Prevents idle kick",               Default = false,    Callback = function(v) setAFK(v) end })
+Tabs.Misc:AddToggle("AutoOptimize", { Title = "Auto Optimize",  Description = "Auto-lower graphics on FPS drops", Default = _isLowEnd, Callback = function(v) S.AutoOptimize = v; if v then optimizeGraphics() end end })
+Tabs.Misc:AddButton({ Title = "Optimize Graphics", Description = "Lower quality, disable shadows/FX",      Callback = optimizeGraphics })
+Tabs.Misc:AddButton({ Title = "Clear Particles",   Description = "Disable all emitters and trails",        Callback = function()
+    for _,p in ipairs(WS:GetDescendants()) do
+        if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled = false end
+    end
+end })
+Tabs.Misc:AddButton({ Title = "Claim All Codes",   Description = "Attempts all "..#Codes.." known codes",  Callback = function() task.spawn(function() claimed = false; claim() end) end })
+Tabs.Misc:AddButton({ Title = "Rejoin Server",     Description = "Reconnects to a fresh instance",          Callback = function() task.delay(0.5, rejoin) end })
+Tabs.Misc:AddParagraph({ Title = "Device", Content = string.format("%s  |  Low-end: %s",
     IsMobile and "Mobile" or IsConsole and "Console" or "PC",
     _isLowEnd and "Yes" or "No"
 )})
 
 -- ── Settings Tab ──────────────────────────────────────────────────────────────
-ST:AddButton({Title="Copy Discord",Description="discord.gg/AuQqvrJE79",Callback=function()
-    if setclipboard then pcall(setclipboard,"https://discord.gg/AuQqvrJE79") end
-    Fluent:Notify({Title="Discord",Content="Copied!",Duration=2})
-end})
+Tabs.Settings:AddButton({ Title = "Copy Discord", Description = "discord.gg/AuQqvrJE79", Callback = function()
+    if setclipboard then pcall(setclipboard, "https://discord.gg/AuQqvrJE79") end
+    Fluent:Notify({ Title = "Discord", Content = "Copied!", Duration = 2 })
+end })
 
-SaveManager:SetLibrary(Fluent)
-InterfaceManager:SetLibrary(Fluent)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreFlags({"AutoReplay"})
-SaveManager:BuildConfigSection(ST)
-InterfaceManager:BuildInterfaceSection(ST)
+-- Build config/interface sections into Settings tab
+SaveManager:BuildConfigSection(Tabs.Settings)
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 
+-- Keybinds (PC only)
 if not IsMobile and not IsConsole then
-    ST:AddKeybind("ToggleUI",{Title="Toggle UI",Default=Enum.KeyCode.RightControl,Callback=function() Win:SetVisible(not Win:GetVisible()) end})
-    ST:AddKeybind("KillAuraKey",{Title="Kill Aura Hotkey",Default=Enum.KeyCode.L,Callback=function()
-        S.KillAura = not S.KillAura; AuraToggle:SetValue(S.KillAura)
-        Fluent:Notify({Title="Kill Aura",Content=S.KillAura and "ON" or "OFF",Duration=2})
-    end})
+    Tabs.Settings:AddKeybind("ToggleUI", { Title = "Toggle UI", Default = Enum.KeyCode.RightControl, Callback = function()
+        Window:SetVisible(not Window:GetVisible())
+    end })
+    Tabs.Settings:AddKeybind("KillAuraKey", { Title = "Kill Aura Hotkey", Default = Enum.KeyCode.L, Callback = function()
+        S.KillAura = not S.KillAura
+        AuraToggle:SetValue(S.KillAura)
+        Fluent:Notify({ Title = "Kill Aura", Content = S.KillAura and "ON" or "OFF", Duration = 2 })
+    end })
 end
+
+-- Console gamepad
 if IsConsole then
-    Cn(UIS.GamepadButtonDown:Connect(function(_,btn)
-        if btn==Enum.KeyCode.ButtonSelect then Win:SetVisible(not Win:GetVisible()) end
-        if btn==Enum.KeyCode.ButtonR3 then
-            S.KillAura=not S.KillAura; AuraToggle:SetValue(S.KillAura)
-            Fluent:Notify({Title="Kill Aura",Content=S.KillAura and "ON" or "OFF",Duration=2})
+    Cn(UIS.GamepadButtonDown:Connect(function(_, btn)
+        if btn == Enum.KeyCode.ButtonSelect then Window:SetVisible(not Window:GetVisible()) end
+        if btn == Enum.KeyCode.ButtonR3 then
+            S.KillAura = not S.KillAura
+            AuraToggle:SetValue(S.KillAura)
+            Fluent:Notify({ Title = "Kill Aura", Content = S.KillAura and "ON" or "OFF", Duration = 2 })
         end
     end))
 end
 
 SaveManager:LoadAutoloadConfig()
 
--- Tell Fluent which tab to show — must pass the tab object, not an index
-Win:SelectTab(Tabs.Combat)
+-- CRITICAL: Select the first tab AFTER all elements are added
+-- This triggers Fluent's internal layout pass that parents elements to their tab frames
+Window:SelectTab(Tabs.Combat)
 
 -- ── Dynamic quality scaling ───────────────────────────────────────────────────
 local _qualityTimer = 0
@@ -877,7 +891,7 @@ _genv._PB_Destroy = function()
     _enemyCount = 0
     pcall(_fpsGui.Destroy, _fpsGui)
     pcall(_toggleGui.Destroy, _toggleGui)
-    pcall(Win.Destroy, Win)
+    pcall(Window.Destroy, Window)
 end
 
 -- ── Draggable V toggle button ─────────────────────────────────────────────────
@@ -931,7 +945,7 @@ end)
 _toggleBtn.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         local moved = math.abs(input.Position.X-_drag.start.X) + math.abs(input.Position.Y-_drag.start.Y) < 8
-        if moved then Win:SetVisible(not Win:GetVisible()) end
+        if moved then Window:SetVisible(not Window:GetVisible()) end
         _drag.active = false
     end
 end)
