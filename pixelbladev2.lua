@@ -39,7 +39,7 @@ do local ok,r = pcall(function() return string.lower(tostring(settings())) end);
 -- ── Low-end detection (fps measured before UI loads) ─────────────────────────
 local _isLowEnd = false
 do
-    local samples, total, start = 0, 0, tick()
+    local samples, total = 0, 0
     local conn
     conn = Run.RenderStepped:Connect(function(dt)
         samples = samples + 1
@@ -149,6 +149,11 @@ local function optimizeGraphics()
 end
 
 if _isLowEnd then task.spawn(optimizeGraphics) end
+
+-- ── Toggle GUI (declared early so _PB_Destroy can reference it) ──────────────
+local _toggleGui = Instance.new("ScreenGui")
+_toggleGui.Name="PB_Toggle"; _toggleGui.ResetOnSpawn=false; _toggleGui.DisplayOrder=9998
+_toggleGui.IgnoreGuiInset=true; _toggleGui.Parent=CoreGui
 
 -- ── FPS Widget ────────────────────────────────────────────────────────────────
 local _fpsGui   = Instance.new("ScreenGui")
@@ -637,8 +642,8 @@ local function setAFK(v)
     S.AntiAFK=v
     if afkConn then afkConn:Disconnect(); afkConn=nil end
     if v then afkConn=Run.Heartbeat:Connect(function()
-        local _=pcall(VU.CaptureController,VU)
-        local _2=pcall(VU.ClickButton2,VU,Vector2.new())
+        pcall(VU.CaptureController,VU)
+        pcall(VU.ClickButton2,VU,Vector2.new())
     end) end
 end
 
@@ -823,11 +828,7 @@ if getgenv then
     end
 end
 
--- ── Draggable floating toggle button (mobile + all platforms) ────────────────
-local _toggleGui = Instance.new("ScreenGui")
-_toggleGui.Name="PB_Toggle"; _toggleGui.ResetOnSpawn=false; _toggleGui.DisplayOrder=9998
-_toggleGui.IgnoreGuiInset=true; _toggleGui.Parent=CoreGui
-
+-- ── Draggable floating toggle button ─────────────────────────────────────────
 local _toggleBtn = Instance.new("ImageButton")
 _toggleBtn.Size=UDim2.new(0,54,0,54)
 _toggleBtn.Position=IsMobile and UDim2.new(0,10,0.5,-27) or UDim2.new(1,-70,0,60)
@@ -863,14 +864,14 @@ _toggleBtn.InputChanged:Connect(function(input)
 end)
 _toggleBtn.InputEnded:Connect(function(input)
     if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
-        local delta=input.Position-_dragStart
-        if delta.Magnitude<6 then
-            -- tap = toggle UI
-            Win:SetVisible(not Win:GetVisible())
+        if _dragStart then
+            local delta=input.Position-_dragStart
+            if delta.Magnitude<6 then Win:SetVisible(not Win:GetVisible()) end
         end
-        _dragging=false
+        _dragging=false; _dragStart=nil
     end
 end)
+local notifMsg
 if IsMobile    then notifMsg="Tap the UI to toggle panels"
 elseif IsConsole then notifMsg="Select = Toggle UI  |  R3 = Kill Aura"
 else notifMsg="L = Kill Aura  |  RCtrl = Toggle UI" end
