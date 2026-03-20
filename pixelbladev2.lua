@@ -33,7 +33,8 @@ local Cam          = WS.CurrentCamera
 -- ── Device detection ──────────────────────────────────────────────────────────
 local IsMobile  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local IsConsole = UIS.GamepadEnabled and not UIS.KeyboardEnabled and not UIS.TouchEnabled
-local IsMac     = pcall(function() return string.find(string.lower(tostring(settings())), "mac") end) and true or false
+local IsMac = false
+do local ok,r = pcall(function() return string.lower(tostring(settings())) end); if ok and r then IsMac = r:find("mac") ~= nil end end
 
 -- ── Low-end detection (fps measured before UI loads) ─────────────────────────
 local _isLowEnd = false
@@ -360,15 +361,15 @@ Cn(Run.Heartbeat:Connect(function(dt)
     _raidTimer=_raidTimer+dt; _blockTimer=_blockTimer+dt
     if _blockTimer>=0.1 then
         _blockTimer=0
-        if blockRemote and blockRemote.Parent then pcall(blockRemote.FireServer,blockRemote,true) end
+        if blockRemote and blockRemote.Parent then local _=pcall(blockRemote.FireServer,blockRemote,true) end
     end
     if _raidTimer>=_raidAttackInterval then
         _raidTimer=0
         local list,n=getRaidEnemies()
         if n>0 then
-            if swingRemote and swingRemote.Parent then pcall(swingRemote.FireServer,swingRemote) end
+            if swingRemote and swingRemote.Parent then local _=pcall(swingRemote.FireServer,swingRemote) end
             if HitEv and HitEv.Parent then
-                for i=1,n do if list[i].humanoid then pcall(HitEv.FireServer,HitEv,list[i].humanoid,9999999999,{},0) end end
+                for i=1,n do if list[i].humanoid then local _=pcall(HitEv.FireServer,HitEv,list[i].humanoid,9999999999,{},0) end end
             end
         end
     end
@@ -584,7 +585,7 @@ Cn(Run.Heartbeat:Connect(function(dt)
             local mag=math.sqrt(ex*ex+ey*ey+ez*ez)
             if mag>0 and lookVec.X*(ex/mag)+lookVec.Y*(ey/mag)+lookVec.Z*(ez/mag)<COS45 then continue end
         end
-        pcall(HitEv.FireServer,HitEv,h,_getDmg(m),{},0); count=count+1
+        local _=pcall(HitEv.FireServer,HitEv,h,_getDmg(m),{},0); count=count+1
     end
     task.delay(0.2,confirmDamageable)
 end))
@@ -600,7 +601,7 @@ local function startDrink()
             task.wait(0.5)
             local char=LP.Character; local h=char and char:FindFirstChildOfClass("Humanoid")
             if h and h.Health>0 and h.MaxHealth>0 and (h.Health/h.MaxHealth)*100<=S.DrinkThreshold then
-                pcall(DrinkEv.FireServer,DrinkEv); task.wait(0.5)
+                local _=pcall(DrinkEv.FireServer,DrinkEv); task.wait(0.5)
             end
         end
     end)
@@ -622,7 +623,7 @@ local function startBuy()
             local qty=math.max(1,S.BuyQty)
             if S.BuyMax>0 then qty=math.min(qty,S.BuyMax-S.BuyTotal) end
             for _,pn in ipairs(S.BuyPotions) do
-                for i=1,qty do pcall(BuyEv.FireServer,BuyEv,pn,"potion"); task.wait(0.15) end
+                for i=1,qty do local _=pcall(BuyEv.FireServer,BuyEv,pn,"potion"); task.wait(0.15) end
             end
             S.BuyTotal=S.BuyTotal+qty*math.max(1,#S.BuyPotions)
             task.wait(S.BuyInterval)
@@ -635,7 +636,10 @@ local afkConn
 local function setAFK(v)
     S.AntiAFK=v
     if afkConn then afkConn:Disconnect(); afkConn=nil end
-    if v then afkConn=Run.Heartbeat:Connect(function() pcall(VU.CaptureController,VU); pcall(VU.ClickButton2,VU,Vector2.new()) end) end
+    if v then afkConn=Run.Heartbeat:Connect(function()
+        local _=pcall(VU.CaptureController,VU)
+        local _2=pcall(VU.ClickButton2,VU,Vector2.new())
+    end) end
 end
 
 -- ── Misc helpers ──────────────────────────────────────────────────────────────
@@ -646,7 +650,7 @@ local function claim()
         if not ClaimEv then Fluent:Notify({Title="Codes",Content="Remote not found.",Duration=3}) end; return
     end
     claimed=true
-    for _,code in next,Codes do pcall(ClaimEv.InvokeServer,ClaimEv,code); task.wait(0.3) end
+    for _,code in next,Codes do local _=pcall(ClaimEv.InvokeServer,ClaimEv,code); task.wait(0.3) end
 end
 
 local function rejoin()
