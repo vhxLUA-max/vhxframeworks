@@ -103,18 +103,41 @@ if gameName then
         local msg   = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
         local endTs = mRes[1].end_timestamp
 
-        -- Parse end_timestamp once
-        local endEpoch = nil
+        -- Get remaining seconds at fetch time using UTC from Supabase
+        -- We fetch the server's current UTC time to avoid any local clock/timezone issues
+        local remainingAtFetch = -1
         if endTs then
             pcall(function()
-                local y,mo,d,hh,mm,ss = endTs:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
-                if y then endEpoch = os.time({year=tonumber(y),month=tonumber(mo),day=tonumber(d),hour=tonumber(hh),min=tonumber(mm),sec=tonumber(ss)}) end
+                local nowRes = decode(req("GET", "/rest/v1/rpc/now"))
+                local serverNow = nowRes or os.date("!%Y-%m-%dT%H:%M:%SZ")
+                local function parseISO(s)
+                    local y,mo,d,hh,mm,ss = s:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+                    if not y then return nil end
+                    -- Convert to seconds since epoch using UTC components
+                    -- Using a reference: days since 1970-01-01
+                    local function isLeap(yr) return (yr%4==0 and yr%100~=0) or yr%400==0 end
+                    local DAYS = {31,28,31,30,31,30,31,31,30,31,30,31}
+                    local function daysSinceEpoch(yr,mo2,dy)
+                        local days = 0
+                        for yr2=1970,yr-1 do days=days+(isLeap(yr2) and 366 or 365) end
+                        local mdays = {31,28,31,30,31,30,31,31,30,31,30,31}
+                        if isLeap(yr) then mdays[2]=29 end
+                        for m2=1,mo2-1 do days=days+mdays[m2] end
+                        return days+dy-1
+                    end
+                    local yn,mon,dn,hhn,mmn,ssn = tonumber(y),tonumber(mo),tonumber(d),tonumber(hh),tonumber(mm),tonumber(ss)
+                    return daysSinceEpoch(yn,mon,dn)*86400 + hhn*3600 + mmn*60 + ssn
+                end
+                local endSecs  = parseISO(endTs)
+                local nowSecs  = parseISO(tostring(serverNow):sub(1,19))
+                if endSecs and nowSecs then
+                    remainingAtFetch = math.max(0, endSecs - nowSecs)
+                end
             end)
         end
 
-        local Run2 = game:GetService("RunService")
-        local UIS2 = game:GetService("UserInputService")
-        local sg   = Instance.new("ScreenGui")
+        -- Build UI
+        local sg = Instance.new("ScreenGui")
         sg.Name="VHX_MAINT"; sg.ResetOnSpawn=false; sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
 
         local frame = Instance.new("Frame")
@@ -139,7 +162,7 @@ if gameName then
         cdLbl.Size=UDim2.new(1,-24,0,30); cdLbl.Position=UDim2.new(0,12,0,88)
         cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=18
         cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left
-        cdLbl.Text="Ends in: --:--:--"; cdLbl.Parent=frame
+        cdLbl.Text=endTs and "Ends in: --:--:--" or "Duration unknown"; cdLbl.Parent=frame
 
         local closeBtn=Instance.new("TextButton")
         closeBtn.Size=UDim2.new(0,28,0,28); closeBtn.Position=UDim2.new(1,-36,0,4)
@@ -160,7 +183,7 @@ if gameName then
         frame.InputEnded:Connect(function(i)
             if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end
         end)
-        local dragConn=UIS2.InputChanged:Connect(function(i)
+        local dragConn=UIS.InputChanged:Connect(function(i)
             if not dragging then return end
             if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
             local d=i.Position-dragStart; local vp=Cam.ViewportSize
@@ -168,20 +191,20 @@ if gameName then
         end)
         sg.Destroying:Connect(function() dragConn:Disconnect() end)
 
-        -- Live countdown via task.spawn + task.wait(1) — not Heartbeat
+        -- Live countdown: count down from remainingAtFetch using tick() delta — no os.time() needed
         task.spawn(function()
+            if remainingAtFetch < 0 then return end -- no timer set
+            local startTick = tick()
+            local fired = false
             while sg and sg.Parent do
-                if endEpoch then
-                    local rem=math.max(0,endEpoch-os.time())
-                    if cdLbl and cdLbl.Parent then
-                        cdLbl.Text=string.format("Ends in: %02d:%02d:%02d",math.floor(rem/3600),math.floor((rem%3600)/60),rem%60)
-                    end
-                    if rem<=0 then
-                        if cdLbl and cdLbl.Parent then cdLbl.Text="Ending soon..." end
-                        task.wait(5); pcall(sg.Destroy,sg); return
-                    end
-                else
-                    if cdLbl and cdLbl.Parent then cdLbl.Text="Duration unknown" end
+                local rem = math.max(0, remainingAtFetch - math.floor(tick() - startTick))
+                if cdLbl and cdLbl.Parent then
+                    cdLbl.Text = string.format("Ends in: %02d:%02d:%02d", math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
+                end
+                if rem <= 0 and not fired then
+                    fired = true
+                    pcall(sg.Destroy, sg)
+                    return
                 end
                 task.wait(1)
             end
