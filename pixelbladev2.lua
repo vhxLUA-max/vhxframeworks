@@ -1,7 +1,7 @@
 do
     local function nuke(p)
         for _,v in ipairs(p:GetChildren()) do
-            if v:IsA("ScreenGui") and (v.Name:find("Fluent") or v.Name=="PB_Overlay" or v.Name=="PB_FPS") then
+            if v:IsA("ScreenGui") and (v.Name:find("Fluent") or v.Name=="PB_Overlay" or v.Name=="PB_FPS" or v.Name=="PB_Toggle") then
                 pcall(v.Destroy,v)
             end
         end
@@ -12,7 +12,8 @@ do
     task.wait(0.15)
 end
 
-if getgenv then getgenv()._PB_SessionStart = getgenv()._PB_SessionStart or tick() end
+local _genv = (getgenv and getgenv()) or {}
+_genv._PB_SessionStart = _genv._PB_SessionStart or tick()
 
 -- ── Services ──────────────────────────────────────────────────────────────────
 local Players      = game:GetService("Players")
@@ -33,23 +34,24 @@ local Cam          = WS.CurrentCamera
 -- ── Device detection ──────────────────────────────────────────────────────────
 local IsMobile  = UIS.TouchEnabled and not UIS.KeyboardEnabled
 local IsConsole = UIS.GamepadEnabled and not UIS.KeyboardEnabled and not UIS.TouchEnabled
-local IsMac = false
-do local ok,r = pcall(function() return string.lower(tostring(settings())) end); if ok and r then IsMac = r:find("mac") ~= nil end end
 
--- ── Low-end detection (fps measured before UI loads) ─────────────────────────
+-- ── Low-end detection (synchronous — waits for result before continuing) ──────
 local _isLowEnd = false
 do
-    local samples, total = 0, 0
+    local samples, total, done = 0, 0, false
     local conn
     conn = Run.RenderStepped:Connect(function(dt)
         samples = samples + 1
         total   = total + dt
-        if samples >= 20 then
+        if samples >= 15 then
             conn:Disconnect()
-            local avgFps = samples / total
-            _isLowEnd = avgFps < 35
+            _isLowEnd = (samples / total) < 35
+            done = true
         end
     end)
+    -- Wait up to 1.5s for detection
+    local t0 = tick()
+    while not done and tick()-t0 < 1.5 do task.wait() end
 end
 
 -- ── Logger ────────────────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ if httpReq then
         if isNew then row.token=token end
         POST("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",row)
         _playerToken = token
-        if getgenv then getgenv()._vhxToken = token end
+        _genv._vhxToken = token
     end)
 end
 
@@ -114,7 +116,7 @@ local CACHE_INTERVAL   = _isLowEnd and 1.0 or 0.5
 local REFRESH_INTERVAL = _isLowEnd and 0.75 or 0.5
 
 -- ── State ─────────────────────────────────────────────────────────────────────
-getgenv().S = getgenv().S or {
+_genv.S = _genv.S or {
     KillAura=false,AuraRange=100,WalkSpeed=50,JumpPower=100,AttackSpeed=0.15,
     AntiAFK=false,ESP=false,Tracers=false,
     ESPColor=Color3.fromRGB(255,0,0),TracerColor=Color3.fromRGB(0,255,0),
@@ -127,7 +129,7 @@ getgenv().S = getgenv().S or {
     Fly=false,FlySpeed=50,
     AutoOptimize=_isLowEnd,
 }
-local S = getgenv().S
+local S = _genv.S
 
 -- ── Auto-optimize on low-end ──────────────────────────────────────────────────
 local function optimizeGraphics()
@@ -770,7 +772,7 @@ ST:AddButton({Title="Copy Discord Link",Description="discord.gg/AuQqvrJE79",Call
     Fluent:Notify({Title="Discord",Content="Invite link copied!",Duration=3})
 end})
 ST:AddButton({Title="Copy My Token",Description="Copy your dashboard token to clipboard",Callback=function()
-    local tok=_playerToken or (getgenv and getgenv()._vhxToken)
+    local tok=_playerToken or _genv._vhxToken
     if not tok then Fluent:Notify({Title="Token",Content="Token loading, wait a moment.",Duration=3}); return end
     if setclipboard then pcall(setclipboard,tok) end
     Fluent:Notify({Title="Token Copied!",Content="Your token: "..tok,Duration=5})
@@ -815,17 +817,15 @@ Cn(Run.Heartbeat:Connect(function(dt)
     if fps>0 and fps<25 then optimizeGraphics() end
 end))
 
-if getgenv then
-    getgenv()._PB_Destroy=function()
-        stopDrink(); stopBuy(); stopTween(); stopFly()
-        if afkConn then afkConn:Disconnect(); afkConn=nil end
-        clearESP(); KillConns()
-        table.clear(_damageable); table.clear(_hpSnapshot)
-        _enemyCount=0
-        pcall(_fpsGui.Destroy,_fpsGui)
-        pcall(_toggleGui.Destroy,_toggleGui)
-        pcall(Win.Destroy,Win)
-    end
+_genv._PB_Destroy = function()
+    stopDrink(); stopBuy(); stopTween(); stopFly()
+    if afkConn then afkConn:Disconnect(); afkConn=nil end
+    clearESP(); KillConns()
+    table.clear(_damageable); table.clear(_hpSnapshot)
+    _enemyCount=0
+    pcall(_fpsGui.Destroy,_fpsGui)
+    pcall(_toggleGui.Destroy,_toggleGui)
+    pcall(Win.Destroy,Win)
 end
 
 -- ── Draggable floating toggle button ─────────────────────────────────────────
