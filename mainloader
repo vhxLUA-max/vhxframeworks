@@ -28,6 +28,13 @@ local function decode(r)
     return ok and d or nil
 end
 
+local function httpGet(url)
+    local ok, r = pcall(httpRequest, { Url=url, Method="GET" })
+    if not ok or not r then return nil end
+    local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body or "")
+    return ok2 and d or nil
+end
+
 local GAMES = {
     [18172550962]="Pixel Blade",[18172553902]="Pixel Blade",[133884972346775]="Pixel Blade",
     [138013005633222]="Loot Hero",[77439980360504]="Loot Hero",
@@ -45,7 +52,7 @@ local function showGUI(title, msg, color)
         sg.Name = "VHX_NOTICE"; sg.ResetOnSpawn = false; sg.DisplayOrder = 9999
         sg.Parent = game:GetService("CoreGui")
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0,440,0,130); frame.Position = UDim2.new(0.5,-220,0.5,-65)
+        frame.Size = UDim2.new(0,440,0,140); frame.Position = UDim2.new(0.5,-220,0.5,-70)
         frame.BackgroundColor3 = Color3.fromRGB(10,10,15); frame.BorderSizePixel = 0; frame.Parent = sg
         Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
         local stroke = Instance.new("UIStroke", frame)
@@ -56,7 +63,7 @@ local function showGUI(title, msg, color)
         t.TextColor3 = color; t.Font = Enum.Font.GothamBold
         t.TextSize = 15; t.TextXAlignment = Enum.TextXAlignment.Left; t.Parent = frame
         local m = Instance.new("TextLabel")
-        m.Size = UDim2.new(1,-20,0,60); m.Position = UDim2.new(0,10,0,50)
+        m.Size = UDim2.new(1,-20,0,70); m.Position = UDim2.new(0,10,0,52)
         m.BackgroundTransparency = 1; m.Text = msg
         m.TextColor3 = Color3.fromRGB(180,180,180); m.Font = Enum.Font.Gotham
         m.TextSize = 12; m.TextWrapped = true
@@ -65,19 +72,7 @@ local function showGUI(title, msg, color)
     end)
 end
 
--- ── 1. Maintenance mode check ─────────────────────────────────────────────────
-if gameName then
-    local mRes = decode(req("GET", ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg"):format(
-        HttpService:UrlEncode(gameName))))
-    if mRes and #mRes > 0 and mRes[1].maintenance then
-        local msg = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
-        showGUI("🔧  "..gameName.." is under maintenance", msg, Color3.fromRGB(250,180,0))
-        warn("[vhxLUA] Maintenance mode active for "..gameName)
-        return
-    end
-end
-
--- ── 2. Fingerprint generation ─────────────────────────────────────────────────
+-- ── Fingerprint ───────────────────────────────────────────────────────────────
 local function genFingerprint()
     local executor = (identifyexecutor and identifyexecutor()) or
                      (getexecutorname and getexecutorname()) or "unknown"
@@ -87,16 +82,11 @@ local function genFingerprint()
     return string.format("FP-%x-%d", hash, LP.UserId % 99999)
 end
 
+-- ── HWID ──────────────────────────────────────────────────────────────────────
 local function genHWID()
     local executor = (identifyexecutor and identifyexecutor()) or
                      (getexecutorname and getexecutorname()) or "unk"
-    local parts = {
-        tostring(LP.UserId),
-        executor,
-        tostring(game.GameId),
-        tostring(workspace.DistributedGameTime):sub(1,4),
-    }
-    local seed = table.concat(parts, "-")
+    local seed = tostring(LP.UserId)..executor..tostring(game.GameId)
     local hash = 5381
     for i = 1, #seed do hash = ((hash * 33) + string.byte(seed, i)) % 4294967295 end
     return string.format("HW-%x", hash)
@@ -105,53 +95,104 @@ end
 local fingerprint = genFingerprint()
 local hwid        = genHWID()
 
--- ── 3. Ban check (user ID) ────────────────────────────────────────────────────
+-- ── 1. Maintenance check ──────────────────────────────────────────────────────
+if gameName then
+    local mRes = decode(req("GET", ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg"):format(
+        HttpService:UrlEncode(gameName))))
+    if mRes and #mRes > 0 and mRes[1].maintenance then
+        local msg = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
+        showGUI("🔧  "..gameName.." is under maintenance", msg, Color3.fromRGB(250,180,0))
+        warn("[vhxLUA] Maintenance: "..gameName)
+        return
+    end
+end
+
+-- ── 2. User ban check ─────────────────────────────────────────────────────────
 local banData = decode(req("GET", ("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId)))
 if banData and #banData > 0 then
     showGUI("🚫  You are banned from vhxLUA", "Reason: "..(banData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
-    warn("[vhxLUA] Banned")
     return
 end
 
--- ── 4. Fingerprint ban check ──────────────────────────────────────────────────
+-- ── 3. Fingerprint ban check ──────────────────────────────────────────────────
 local fpData = decode(req("GET", ("/rest/v1/fingerprint_bans?fingerprint=eq.%s&select=reason"):format(fingerprint)))
 if fpData and #fpData > 0 then
     showGUI("🚫  You are banned from vhxLUA", "Reason: "..(fpData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
-    warn("[vhxLUA] Device banned")
     return
 end
 
--- ── 5. HWID lock check ────────────────────────────────────────────────────────
+-- ── 4. HWID ban check ────────────────────────────────────────────────────────
+local hwidData = decode(req("GET", ("/rest/v1/hwid_bans?hwid=eq.%s&select=reason"):format(hwid)))
+if hwidData and #hwidData > 0 then
+    showGUI("🔒  Device Banned", "Your device has been banned from vhxLUA.\nReason: "..(hwidData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
+    warn("[vhxLUA] HWID banned")
+    return
+end
+
+-- ── 5. HWID lock ─────────────────────────────────────────────────────────────
 local existingUser = decode(req("GET", ("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=hwid,token,first_seen,execution_count"):format(LP.UserId, placeId)))
 if existingUser and #existingUser > 0 then
     local stored = existingUser[1].hwid
     if stored and stored ~= "" and stored ~= hwid then
-        showGUI("🔒  Device Not Recognized", "This account is locked to a different device. Contact support if this is an error.", Color3.fromRGB(220,50,50))
+        showGUI("🔒  Device Not Recognized", "This account is locked to a different device.\nContact support if this is an error.", Color3.fromRGB(220,50,50))
         warn("[vhxLUA] HWID mismatch")
         return
     end
 end
 
--- ── 6. VPN/Proxy detection ────────────────────────────────────────────────────
+-- ── 6. VPN/Proxy detection (multi-source) ────────────────────────────────────
 task.spawn(function()
-    pcall(function()
-        local vpnRes = httpRequest({
-            Url = "http://ip-api.com/json/?fields=proxy,hosting,vpn",
-            Method = "GET",
-        })
-        if vpnRes and vpnRes.Body then
-            local ok, data = pcall(HttpService.JSONDecode, HttpService, vpnRes.Body)
-            if ok and data and (data.proxy or data.hosting or data.vpn) then
-                req("POST", "/rest/v1/unique_users_flags", {
-                    roblox_user_id = LP.UserId,
-                    username = LP.Name,
-                    flag = "vpn_detected",
-                    note = "Proxy/VPN detected on login",
-                }, "return=minimal")
-                warn("[vhxLUA] VPN/Proxy detected — flagged")
+    local vpnDetected = false
+    local vpnProvider = ""
+    local vpnCountry  = ""
+
+    local sources = {
+        function()
+            local d = httpGet("http://ip-api.com/json/?fields=proxy,hosting,vpn,isp,country,countryCode")
+            if d then
+                vpnCountry  = d.country or ""
+                vpnProvider = d.isp or ""
+                return d.proxy or d.hosting or d.vpn
             end
+            return false
+        end,
+        function()
+            local d = httpGet("https://ipapi.co/json/")
+            if d then
+                vpnProvider = d.org or vpnProvider
+                vpnCountry  = d.country_name or vpnCountry
+                return d.org and (
+                    string.find(string.lower(d.org), "vpn") ~= nil or
+                    string.find(string.lower(d.org), "proxy") ~= nil or
+                    string.find(string.lower(d.org), "hosting") ~= nil or
+                    string.find(string.lower(d.org), "datacenter") ~= nil or
+                    string.find(string.lower(d.org), "cloud") ~= nil or
+                    string.find(string.lower(d.org), "server") ~= nil or
+                    string.find(string.lower(d.org), "tunnel") ~= nil
+                )
+            end
+            return false
+        end,
+    }
+
+    for _, check in ipairs(sources) do
+        local ok, result = pcall(check)
+        if ok and result then
+            vpnDetected = true
+            break
         end
-    end)
+    end
+
+    if vpnDetected then
+        req("POST", "/rest/v1/vpn_flags", {
+            roblox_user_id = LP.UserId,
+            username = LP.Name,
+            provider = vpnProvider,
+            country  = vpnCountry,
+            flagged  = true,
+        }, "return=minimal")
+        warn("[vhxLUA] VPN/Proxy detected — flagged: "..vpnProvider.." ("..vpnCountry..")")
+    end
 end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
@@ -192,7 +233,7 @@ task.spawn(function()
     end
 end)
 
--- ── 8. Load game script ───────────────────────────────────────────────────────
+-- ── 8. Load ───────────────────────────────────────────────────────────────────
 pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))() end)
 
 local GameRegistry = {
