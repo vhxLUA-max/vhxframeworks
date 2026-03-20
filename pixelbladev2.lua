@@ -692,10 +692,10 @@ local MT=Tabs.Movement; local PT=Tabs.Potions; local MiT=Tabs.Misc; local ST=Tab
 -- Combat
 CT:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
 local AuraToggle=CT:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=S.KillAura,Callback=function(v) S.KillAura=v end})
-CT:AddSlider("AuraRange",{Title="Aura Range",Min=0,Max=1000,Default=S.AuraRange,Suffix=" studs",Rounding=0,Callback=function(v) S.AuraRange=v end})
+CT:AddSlider("AuraRange",{Title="Aura Range",Min=1,Max=1000,Default=100,Suffix=" studs",Rounding=0,Callback=function(v) S.AuraRange=v end})
 CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=150,Suffix=" ms",Rounding=0,Callback=function(v) S.AttackSpeed=v/1000 end})
 CT:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.AuraMode,Callback=function(v) S.AuraMode=v end})
-CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=S.BurstCooldown,Suffix="s",Rounding=0,Callback=function(v) S.BurstCooldown=v end})
+CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Rounding=0,Callback=function(v) S.BurstCooldown=v end})
 CT:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=S.AutoTween,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
 CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=12,Suffix=" ms",Rounding=0,Callback=function(v) S.TweenSpeed=v/100 end})
 CT:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
@@ -705,9 +705,9 @@ end})
 -- Raid
 RT:AddParagraph({Title="Note",Content="Eye of Smite is the best sword for Raid mode."})
 RT:AddToggle("RaidAura",{Title="Raid Aura Kill",Default=S.RaidAura,Callback=function(v) S.RaidAura=v end})
-RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=S.RaidAuraRange,Suffix=" studs",Rounding=0,Callback=function(v) S.RaidAuraRange=v end})
+RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=100,Suffix=" studs",Rounding=0,Callback=function(v) S.RaidAuraRange=v end})
 RT:AddDropdown("RaidAuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.RaidAuraMode,Callback=function(v) S.RaidAuraMode=v end})
-RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=S.RaidBurstCD,Suffix="s",Rounding=0,Callback=function(v) S.RaidBurstCD=v end})
+RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Rounding=0,Callback=function(v) S.RaidBurstCD=v end})
 
 -- ESP
 ET:AddToggle("ESPBoxes",{Title="ESP Boxes",Description="Boxes + health bars",Default=S.ESP,Callback=function(v) S.ESP=v; if not v and not S.Tracers then clearESP() end end})
@@ -720,14 +720,14 @@ ET:AddColorpicker("TracerColor",{Title="Tracer Color",Default=S.TracerColor,Call
 ET:AddDropdown("TracerOrigin",{Title="Tracer Origin",Values={"Bottom","Center"},Default=S.TracerOrigin,Callback=function(v) S.TracerOrigin=v end})
 
 -- Movement
-MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=S.WalkSpeed,Suffix=" sp",Rounding=0,Callback=function(v) S.WalkSpeed=v; applySpeed() end})
-MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=S.JumpPower,Rounding=0,Callback=function(v) S.JumpPower=v; applySpeed() end})
+MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=50,Suffix=" sp",Rounding=0,Callback=function(v) S.WalkSpeed=v; applySpeed() end})
+MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=100,Rounding=0,Callback=function(v) S.JumpPower=v; applySpeed() end})
 MT:AddToggle("FlyToggle",{Title="Fly",Description=IsMobile and "Toggle fly (gamepad: A up, B down)" or IsConsole and "Toggle fly (A up, B down)" or "W/A/S/D + Space (up) + LCtrl (down)",Default=S.Fly,Callback=function(v) if v then startFly() else stopFly() end end})
-MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=S.FlySpeed,Suffix=" sp",Rounding=0,Callback=function(v) S.FlySpeed=v end})
+MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=50,Suffix=" sp",Rounding=0,Callback=function(v) S.FlySpeed=v end})
 
 -- Potions
 PT:AddToggle("AutoDrink",{Title="Auto Drink",Description="Drink when health falls below threshold",Default=S.AutoDrink,Callback=function(v) S.AutoDrink=v; if v then startDrink() else stopDrink() end end})
-PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=S.DrinkThreshold,Suffix="%",Rounding=0,Callback=function(v) S.DrinkThreshold=v end})
+PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=50,Suffix="%",Rounding=0,Callback=function(v) S.DrinkThreshold=v end})
 PT:AddDropdown("DrinkPotions",{Title="Potions to Drink",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.DrinkPotions=v end})
 PT:AddToggle("AutoBuy",{Title="Auto Buy",Description="Purchase potions on a timer",Default=S.AutoBuy,Callback=function(v) S.AutoBuy=v; if v then startBuy() else stopBuy() end end})
 PT:AddDropdown("BuyPotions",{Title="Potions to Buy",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.BuyPotions=v end})
@@ -830,19 +830,19 @@ end
 
 -- ── Draggable floating toggle button ─────────────────────────────────────────
 local _toggleBtn = Instance.new("ImageButton")
-_toggleBtn.Size=UDim2.new(0,54,0,54)
-_toggleBtn.Position=IsMobile and UDim2.new(0,10,0.5,-27) or UDim2.new(1,-70,0,60)
+_toggleBtn.Size=UDim2.new(0,60,0,32)
+_toggleBtn.Position=IsMobile and UDim2.new(0,8,0.5,-16) or UDim2.new(1,-72,0,64)
 _toggleBtn.BackgroundColor3=Color3.fromRGB(99,102,241)
 _toggleBtn.BorderSizePixel=0; _toggleBtn.Active=true; _toggleBtn.Draggable=false
 _toggleBtn.Parent=_toggleGui
-Instance.new("UICorner",_toggleBtn).CornerRadius=UDim.new(0,14)
+Instance.new("UICorner",_toggleBtn).CornerRadius=UDim.new(1,0)
 local _stroke2=Instance.new("UIStroke",_toggleBtn)
-_stroke2.Color=Color3.fromRGB(139,92,246); _stroke2.Thickness=2
+_stroke2.Color=Color3.fromRGB(139,92,246); _stroke2.Thickness=1.5
 
 local _toggleLbl=Instance.new("TextLabel")
 _toggleLbl.Size=UDim2.new(1,0,1,0); _toggleLbl.BackgroundTransparency=1
-_toggleLbl.Text="⚔"; _toggleLbl.Font=Enum.Font.GothamBold
-_toggleLbl.TextSize=22; _toggleLbl.TextColor3=Color3.new(1,1,1)
+_toggleLbl.Text="vhxLUA"; _toggleLbl.Font=Enum.Font.GothamBold
+_toggleLbl.TextSize=11; _toggleLbl.TextColor3=Color3.new(1,1,1)
 _toggleLbl.Parent=_toggleBtn
 
 -- Drag logic
