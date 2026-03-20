@@ -763,12 +763,7 @@ ST:AddButton({Title="Copy Discord Link",Description="discord.gg/AuQqvrJE79",Call
     if setclipboard then pcall(setclipboard,"https://discord.gg/AuQqvrJE79") end
     Fluent:Notify({Title="Discord",Content="Invite link copied!",Duration=3})
 end})
-ST:AddButton({Title="Copy My Token",Description="Copy your dashboard token to clipboard",Callback=function()
-    local tok=_playerToken or _genv._vhxToken
-    if not tok then Fluent:Notify({Title="Token",Content="Token loading, wait a moment.",Duration=3}); return end
-    if setclipboard then pcall(setclipboard,tok) end
-    Fluent:Notify({Title="Token Copied!",Content="Your token: "..tok,Duration=5})
-end})
+
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
