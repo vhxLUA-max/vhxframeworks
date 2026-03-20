@@ -124,7 +124,7 @@ if _isLowEnd then task.spawn(optimizeGraphics) end
 -- ── Toggle GUI ────────────────────────────────────────────────────────────────
 local _toggleGui = Instance.new("ScreenGui")
 _toggleGui.Name = "PB_Toggle"; _toggleGui.ResetOnSpawn = false
-_toggleGui.DisplayOrder = 9998; _toggleGui.IgnoreGuiInset = true
+_toggleGui.DisplayOrder = 10001; _toggleGui.IgnoreGuiInset = true
 _toggleGui.Parent = CoreGui
 
 -- ── FPS Widget ────────────────────────────────────────────────────────────────
@@ -198,15 +198,14 @@ local function showMaintenance(title, msg)
     closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
     closeBtn.TouchTap:Connect(function() sg:Destroy() end)
 
-    -- Smooth drag via UIS
-    local dragging, dragStart, frameStart = false, nil, nil
-    local dragConn, moveConn
+    -- Smooth drag via UIS - resolves absolute pixel pos on start to avoid teleport
+    local dragging, dragStart, frameAbsStart = false, nil, nil
 
     local function onInputBegan(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            dragStart = input.Position
-            frameStart = frame.Position
+            dragStart = Vector2.new(input.Position.X, input.Position.Y)
+            frameAbsStart = Vector2.new(frame.AbsolutePosition.X, frame.AbsolutePosition.Y)
         end
     end
     local function onInputEnded(input)
@@ -220,13 +219,14 @@ local function showMaintenance(title, msg)
     titleLbl.InputBegan:Connect(onInputBegan)
     titleLbl.InputEnded:Connect(onInputEnded)
 
+    local moveConn
     moveConn = UIS.InputChanged:Connect(function(input)
-        if not dragging then return end
+        if not dragging or not dragStart then return end
         if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then return end
-        local delta = input.Position - dragStart
+        local delta = Vector2.new(input.Position.X - dragStart.X, input.Position.Y - dragStart.Y)
         local vp = Cam.ViewportSize
-        local nx = math.clamp(frameStart.X.Offset + delta.X, 0, vp.X - 420)
-        local ny = math.clamp(frameStart.Y.Offset + delta.Y, 0, vp.Y - 130)
+        local nx = math.clamp(frameAbsStart.X + delta.X, 0, vp.X - 420)
+        local ny = math.clamp(frameAbsStart.Y + delta.Y, 0, vp.Y - 130)
         frame.Position = UDim2.new(0, nx, 0, ny)
     end)
 
@@ -243,13 +243,13 @@ local function KillConns()
 end
 
 -- ── Remotes ───────────────────────────────────────────────────────────────────
-local Rem         = RS:FindFirstChild("remotes")
-local HitEv       = Rem and Rem:FindFirstChild("onHit")
-local ClaimEv     = Rem and Rem:FindFirstChild("claimCode")
-local DrinkEv     = Rem and Rem:FindFirstChild("drinkPotion")
-local BuyEv       = Rem and Rem:FindFirstChild("requestPurchase")
-local swingRemote = Rem and Rem:FindFirstChild("swing")
-local blockRemote = Rem and Rem:FindFirstChild("block")
+local Rem         = RS:WaitForChild("remotes", 10)
+local HitEv       = Rem and Rem:WaitForChild("onHit", 5)
+local ClaimEv     = Rem and Rem:WaitForChild("claimCode", 5)
+local DrinkEv     = Rem and Rem:WaitForChild("drinkPotion", 5)
+local BuyEv       = Rem and Rem:WaitForChild("requestPurchase", 5)
+local swingRemote = Rem and Rem:WaitForChild("swing", 5)
+local blockRemote = Rem and Rem:WaitForChild("block", 5)
 
 -- ── Enemy pool ────────────────────────────────────────────────────────────────
 local _enemies = table.create(POOL_SIZE)
@@ -311,7 +311,7 @@ Cn(Run.Heartbeat:Connect(function(dt)
     if _refreshTimer >= REFRESH_INTERVAL then _refreshTimer = 0; _refreshEnemies() end
 end))
 
-local LevelStartEv = Rem and Rem:FindFirstChild("levelStart")
+local LevelStartEv = Rem and Rem:WaitForChild("levelStart", 5)
 if LevelStartEv then
     Cn(LevelStartEv.OnClientEvent:Connect(function()
         _enemyCount = 0; _wsDirty = true
@@ -735,7 +735,8 @@ end
 
 -- ── Window ────────────────────────────────────────────────────────────────────
 local Win = Fluent:CreateWindow({
-    Title = "Pixel Blade", SubTitle = "By vhxLUA",
+    Title = "Pixel Blade",
+    SubTitle = "By vhxLUA",
     TabWidth = 160,
     Size = UDim2.fromOffset(IsMobile and 480 or 580, IsMobile and 400 or 460),
     Acrylic = not _isLowEnd,
@@ -854,8 +855,8 @@ end
 
 SaveManager:LoadAutoloadConfig()
 
--- ── FIX: Select first tab so Fluent renders tab content ───────────────────────
-Win:SelectTab(1)
+-- Tell Fluent which tab to show — must pass the tab object, not an index
+Win:SelectTab(Tabs.Combat)
 
 -- ── Dynamic quality scaling ───────────────────────────────────────────────────
 local _qualityTimer = 0
