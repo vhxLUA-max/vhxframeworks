@@ -147,7 +147,7 @@ local function optimizeGraphics()
             if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end
         end
     end)
-    if Fluent then Fluent:Notify({Title="Optimized",Content="Graphics lowered for performance.",Duration=4}) end
+    
 end
 
 if _isLowEnd then task.spawn(optimizeGraphics) end
@@ -602,7 +602,7 @@ local _drinkThread=nil
 local function stopDrink() if _drinkThread then task.cancel(_drinkThread); _drinkThread=nil end end
 local function startDrink()
     stopDrink()
-    if not DrinkEv or not DrinkEv.Parent then Fluent:Notify({Title="Auto Drink",Content="drinkPotion remote not found!",Duration=3}); return end
+    if not DrinkEv or not DrinkEv.Parent then return end
     _drinkThread=task.spawn(function()
         while S.AutoDrink do
             task.wait(0.5)
@@ -619,13 +619,13 @@ local _buyThread=nil
 local function stopBuy() if _buyThread then task.cancel(_buyThread); _buyThread=nil end end
 local function startBuy()
     stopBuy()
-    if not BuyEv or not BuyEv.Parent then Fluent:Notify({Title="Auto Buy",Content="requestPurchase remote not found!",Duration=3}); return end
+    if not BuyEv or not BuyEv.Parent then return end
     S.BuyTotal=0
     _buyThread=task.spawn(function()
         while S.AutoBuy do
             if #S.BuyPotions==0 then task.wait(1); continue end
             if S.BuyMax>0 and S.BuyTotal>=S.BuyMax then
-                S.AutoBuy=false; Fluent:Notify({Title="Auto Buy",Content="Max purchases ("..S.BuyMax..") reached!",Duration=4}); break
+                S.AutoBuy=false; break
             end
             local qty=math.max(1,S.BuyQty)
             if S.BuyMax>0 then qty=math.min(qty,S.BuyMax-S.BuyTotal) end
@@ -654,7 +654,7 @@ local Codes={"BREAKABLES","AncientSands","PLUSHIE","625K","CrimsonNightmare","60
 local claimed=false
 local function claim()
     if claimed or not ClaimEv or not ClaimEv.Parent then
-        if not ClaimEv then Fluent:Notify({Title="Codes",Content="Remote not found.",Duration=3}) end; return
+        return
     end
     claimed=true
     for _,code in next,Codes do local _=pcall(ClaimEv.InvokeServer,ClaimEv,code); task.wait(0.3) end
@@ -693,11 +693,11 @@ local MT=Tabs.Movement; local PT=Tabs.Potions; local MiT=Tabs.Misc; local ST=Tab
 CT:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
 local AuraToggle=CT:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=S.KillAura,Callback=function(v) S.KillAura=v end})
 CT:AddSlider("AuraRange",{Title="Aura Range",Min=0,Max=1000,Default=S.AuraRange,Suffix=" studs",Rounding=0,Callback=function(v) S.AuraRange=v end})
-CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=math.floor(S.AttackSpeed*1000),Suffix=" ms",Rounding=0,Callback=function(v) S.AttackSpeed=v/1000 end})
+CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=150,Suffix=" ms",Rounding=0,Callback=function(v) S.AttackSpeed=v/1000 end})
 CT:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.AuraMode,Callback=function(v) S.AuraMode=v end})
 CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=S.BurstCooldown,Suffix="s",Rounding=0,Callback=function(v) S.BurstCooldown=v end})
 CT:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=S.AutoTween,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
-CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=math.floor(S.TweenSpeed*100),Suffix=" ms",Rounding=0,Callback=function(v) S.TweenSpeed=v/100 end})
+CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=12,Suffix=" ms",Rounding=0,Callback=function(v) S.TweenSpeed=v/100 end})
 CT:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
     if v then local ev=RS.remotes.gameEndVote; pcall(ev.FireServer,ev,"replay") end
 end})
@@ -743,17 +743,17 @@ MiT:AddToggle("AutoOptimize",{Title="Auto Optimize",Description="Auto-lowers gra
     S.AutoOptimize=v; if v then optimizeGraphics() end
 end})
 MiT:AddButton({Title="Rejoin Server",Description="Reconnects to a fresh instance",Callback=function()
-    Fluent:Notify({Title="Rejoin",Content="Rejoining...",Duration=3}); task.delay(0.5,rejoin)
+    task.delay(0.5,rejoin)
 end})
 MiT:AddButton({Title="Claim All Codes",Description="Attempts all "..#Codes.." known codes",Callback=function()
-    Fluent:Notify({Title="Codes",Content="Claiming "..#Codes.." codes...",Duration=3})
+    
     task.spawn(function() claimed=false; claim() end)
 end})
 MiT:AddButton({Title="Optimize Graphics",Description="Reduces quality, disables shadows/FX",Callback=optimizeGraphics})
 MiT:AddButton({Title="Clear Particles",Description="Disables all particle emitters and trails",Callback=function()
     local count=0
     for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false; count=count+1 end end
-    Fluent:Notify({Title="Particles",Content="Disabled "..count.." effects.",Duration=3})
+    
 end})
 
 -- Device info paragraph
