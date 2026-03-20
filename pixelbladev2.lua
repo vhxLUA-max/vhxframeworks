@@ -44,10 +44,11 @@ if httpReq then
     end)
 end
 
-local Fluent           = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+local Fluent           = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/src/main.lua"))()
 local SaveManager      = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
+assert(Fluent, "[vhxLUA] Fluent failed to load. Check your internet or executor.")
 local POTION_NAMES     = {"HealthFlask","DragonFlask","EnergyFlask"}
 local INTERVAL_OPTIONS = {1,5,10,20,30}
 local INTERVAL_STRS    = {"1s","5s","10s","20s","30s"}
