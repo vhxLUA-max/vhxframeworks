@@ -137,7 +137,13 @@ local function optimizeGraphics()
             if v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect") then v.Enabled=false end
         end
     end)
-    pcall(function() for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end end end)
+    pcall(function()
+        local descs = WS:GetDescendants()
+        for i=1,#descs do
+            local p=descs[i]
+            if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end
+        end
+    end)
     if Fluent then Fluent:Notify({Title="Optimized",Content="Graphics lowered for performance.",Duration=4}) end
 end
 
@@ -808,11 +814,59 @@ if getgenv then
         table.clear(_damageable); table.clear(_hpSnapshot)
         _enemyCount=0
         pcall(_fpsGui.Destroy,_fpsGui)
+        pcall(_toggleGui.Destroy,_toggleGui)
         pcall(Win.Destroy,Win)
     end
 end
 
-local notifMsg
+-- ── Draggable floating toggle button (mobile + all platforms) ────────────────
+local _toggleGui = Instance.new("ScreenGui")
+_toggleGui.Name="PB_Toggle"; _toggleGui.ResetOnSpawn=false; _toggleGui.DisplayOrder=9998
+_toggleGui.IgnoreGuiInset=true; _toggleGui.Parent=CoreGui
+
+local _toggleBtn = Instance.new("ImageButton")
+_toggleBtn.Size=UDim2.new(0,54,0,54)
+_toggleBtn.Position=IsMobile and UDim2.new(0,10,0.5,-27) or UDim2.new(1,-70,0,60)
+_toggleBtn.BackgroundColor3=Color3.fromRGB(99,102,241)
+_toggleBtn.BorderSizePixel=0; _toggleBtn.Active=true; _toggleBtn.Draggable=false
+_toggleBtn.Parent=_toggleGui
+Instance.new("UICorner",_toggleBtn).CornerRadius=UDim.new(0,14)
+local _stroke2=Instance.new("UIStroke",_toggleBtn)
+_stroke2.Color=Color3.fromRGB(139,92,246); _stroke2.Thickness=2
+
+local _toggleLbl=Instance.new("TextLabel")
+_toggleLbl.Size=UDim2.new(1,0,1,0); _toggleLbl.BackgroundTransparency=1
+_toggleLbl.Text="⚔"; _toggleLbl.Font=Enum.Font.GothamBold
+_toggleLbl.TextSize=22; _toggleLbl.TextColor3=Color3.new(1,1,1)
+_toggleLbl.Parent=_toggleBtn
+
+-- Drag logic
+local _dragging,_dragStart,_startPos=false,nil,nil
+_toggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        _dragging=true; _dragStart=input.Position
+        _startPos=_toggleBtn.Position
+    end
+end)
+_toggleBtn.InputChanged:Connect(function(input)
+    if _dragging and (input.UserInputType==Enum.UserInputType.MouseMovement or input.UserInputType==Enum.UserInputType.Touch) then
+        local delta=input.Position-_dragStart
+        local vp=Cam.ViewportSize
+        local nx=math.clamp(_startPos.X.Offset+delta.X,0,vp.X-54)
+        local ny=math.clamp(_startPos.Y.Offset+delta.Y,0,vp.Y-54)
+        _toggleBtn.Position=UDim2.new(0,nx,0,ny)
+    end
+end)
+_toggleBtn.InputEnded:Connect(function(input)
+    if input.UserInputType==Enum.UserInputType.MouseButton1 or input.UserInputType==Enum.UserInputType.Touch then
+        local delta=input.Position-_dragStart
+        if delta.Magnitude<6 then
+            -- tap = toggle UI
+            Win:SetVisible(not Win:GetVisible())
+        end
+        _dragging=false
+    end
+end)
 if IsMobile    then notifMsg="Tap the UI to toggle panels"
 elseif IsConsole then notifMsg="Select = Toggle UI  |  R3 = Kill Aura"
 else notifMsg="L = Kill Aura  |  RCtrl = Toggle UI" end
