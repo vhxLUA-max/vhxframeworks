@@ -44,7 +44,88 @@ if httpReq then
     end)
 end
 
-local Fluent           = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/src/main.lua"))()
+
+-- ── Live maintenance countdown (syncs with Supabase end_timestamp) ────────────
+task.spawn(function()
+    if not httpReq then return end
+    local pid = game.PlaceId
+    local GAMES = {
+        [18172550962]="Pixel Blade",[18172553902]="Pixel Blade",[133884972346775]="Pixel Blade",
+        [138013005633222]="Loot Hero",[77439980360504]="Loot Hero",
+        [119987266683883]="Survive Lava",[136801880565837]="Flick",[123974602339071]="UNC Tester",
+    }
+    local gameName = GAMES[pid]; if not gameName then return end
+    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY}
+    local ok,r = pcall(httpReq,{Url=SUPABASE_URL.."/rest/v1/game_status?game_name=eq."..HttpService:UrlEncode(gameName).."&select=maintenance,maintenance_msg,end_timestamp",Method="GET",Headers=h})
+    if not ok or not r or not r.Body then return end
+    local ok2,data = pcall(HttpService.JSONDecode,HttpService,r.Body)
+    if not ok2 or not data or #data==0 then return end
+    local row = data[1]
+    if not row.maintenance then return end
+
+    local msg = row.maintenance_msg or "This script is under maintenance."
+    local endTs = row.end_timestamp
+
+    local sg = Instance.new("ScreenGui")
+    sg.Name="PB_Maint"; sg.ResetOnSpawn=false; sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
+    local frame = Instance.new("Frame")
+    frame.Size=UDim2.new(0,420,0,140); frame.Position=UDim2.new(0.5,-210,0.5,-70)
+    frame.BackgroundColor3=Color3.fromRGB(12,12,18); frame.BorderSizePixel=0; frame.Active=true; frame.Parent=sg
+    Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
+    local stroke=Instance.new("UIStroke",frame); stroke.Color=Color3.fromRGB(245,158,11); stroke.Thickness=2
+    local titleLbl=Instance.new("TextLabel"); titleLbl.Size=UDim2.new(1,-44,0,38); titleLbl.Position=UDim2.new(0,14,0,0)
+    titleLbl.BackgroundTransparency=1; titleLbl.Text=gameName.." - Maintenance"
+    titleLbl.Font=Enum.Font.GothamBold; titleLbl.TextSize=14; titleLbl.TextColor3=Color3.fromRGB(245,158,11)
+    titleLbl.TextXAlignment=Enum.TextXAlignment.Left; titleLbl.Parent=frame
+    local msgLbl=Instance.new("TextLabel"); msgLbl.Size=UDim2.new(1,-28,0,36); msgLbl.Position=UDim2.new(0,14,0,40)
+    msgLbl.BackgroundTransparency=1; msgLbl.Text=msg; msgLbl.Font=Enum.Font.Gotham; msgLbl.TextSize=12; msgLbl.TextWrapped=true
+    msgLbl.TextColor3=Color3.fromRGB(180,180,180); msgLbl.TextXAlignment=Enum.TextXAlignment.Left; msgLbl.Parent=frame
+    local cdLbl=Instance.new("TextLabel"); cdLbl.Size=UDim2.new(1,-28,0,28); cdLbl.Position=UDim2.new(0,14,0,80)
+    cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=18
+    cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left; cdLbl.Parent=frame
+    local closeBtn=Instance.new("TextButton"); closeBtn.Size=UDim2.new(0,30,0,30); closeBtn.Position=UDim2.new(1,-38,0,4)
+    closeBtn.BackgroundColor3=Color3.fromRGB(40,40,50); closeBtn.Text="X"; closeBtn.Font=Enum.Font.GothamBold
+    closeBtn.TextSize=13; closeBtn.TextColor3=Color3.fromRGB(200,200,200); closeBtn.BorderSizePixel=0; closeBtn.Parent=frame
+    Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,6)
+    closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
+    closeBtn.TouchTap:Connect(function() sg:Destroy() end)
+
+    -- Drag via UIS
+    local dragging,dragStart,frameStart=false,nil,nil
+    frame.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true;dragStart=i.Position;frameStart=frame.Position end end)
+    frame.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
+    local mc=UIS.InputChanged:Connect(function(i)
+        if not dragging then return end
+        if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
+        local d=i.Position-dragStart; local vp=Cam.ViewportSize
+        frame.Position=UDim2.new(0,math.clamp(frameStart.X.Offset+d.X,0,vp.X-420),0,math.clamp(frameStart.Y.Offset+d.Y,0,vp.Y-140))
+    end)
+    sg.Destroying:Connect(function() mc:Disconnect() end)
+
+    -- Countdown tick
+    local countConn; countConn=Run.Heartbeat:Connect(function()
+        if not sg or not sg.Parent then countConn:Disconnect(); return end
+        if endTs then
+            local remaining = 0
+            pcall(function()
+                local y,mo,d,hh,mm,ss = endTs:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+                if y then
+                    local endEpoch = os.time({year=tonumber(y),month=tonumber(mo),day=tonumber(d),hour=tonumber(hh),min=tonumber(mm),sec=tonumber(ss)})
+                    remaining = math.max(0, endEpoch - os.time())
+                end
+            end)
+            local h2=math.floor(remaining/3600); local m2=math.floor((remaining%3600)/60); local s2=remaining%60
+            cdLbl.Text=string.format("Ends in: %02d:%02d:%02d",h2,m2,s2)
+            if remaining<=0 then cdLbl.Text="Maintenance ending soon..."; task.wait(5); pcall(sg.Destroy,sg); countConn:Disconnect() end
+        else
+            cdLbl.Text="Duration: Unknown"
+        end
+    end)
+    warn("[vhxLUA] "..gameName.." is under maintenance.")
+    return
+end)
+
+local Fluent           = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
 local SaveManager      = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
 
@@ -52,11 +133,25 @@ assert(Fluent, "[vhxLUA] Fluent failed to load. Check your internet or executor.
 local POTION_NAMES     = {"HealthFlask","DragonFlask","EnergyFlask"}
 local INTERVAL_OPTIONS = {1,5,10,20,30}
 local INTERVAL_STRS    = {"1s","5s","10s","20s","30s"}
-local MAX_TARGETS      = 10
+-- Device detection for adaptive performance
+local _isLowEnd = false
+do
+    local s,t,done=0,0,false; local c
+    c=Run.RenderStepped:Connect(function(dt) s+=1;t+=dt; if s>=15 then c:Disconnect();_isLowEnd=(s/t)<35;done=true end end)
+    local t0=tick(); while not done and tick()-t0<1.5 do task.wait() end
+end
+if _isLowEnd then
+    pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
+    pcall(function() game:GetService("Lighting").GlobalShadows=false end)
+end
+local MAX_TARGETS      = _isLowEnd and 5  or 10
 local MIN_INTERVAL     = 0.08
 local BOSS_DAMAGE      = {BookHand=5000,Throne9=5000}
-local POOL_SIZE        = 64
-local RAID_POOL_SIZE   = 32
+local POOL_SIZE        = _isLowEnd and 32 or 64
+local RAID_POOL_SIZE   = _isLowEnd and 16 or 32
+local _CACHE_RATE      = _isLowEnd and 1.0 or 0.5
+local _REFRESH_RATE    = _isLowEnd and 0.75 or 0.5
+local _ESP_RATE        = _isLowEnd and 0.2 or 0.1
 local V3Z              = Vector3.zero
 local COS45            = math.cos(math.rad(45))
 
@@ -321,11 +416,11 @@ Cn(Run.Heartbeat:Connect(function(dt)
 
     -- WS cache rebuild (dirty-flag gated, 0.5s throttle)
     _wsCacheTimer = _wsCacheTimer + dt
-    if _wsDirty and _wsCacheTimer >= 0.5 then _wsCacheTimer=0; _wsDirty=false; _rebuildWSCache() end
+    if _wsDirty and _wsCacheTimer >= _CACHE_RATE then _wsCacheTimer=0; _wsDirty=false; _rebuildWSCache() end
 
     -- Enemy refresh (0.5s)
     _refreshTimer = _refreshTimer + dt
-    if _refreshTimer >= 0.5 then _refreshTimer=0; _refreshEnemies() end
+    if _refreshTimer >= _REFRESH_RATE then _refreshTimer=0; _refreshEnemies() end
 
     -- Damageable table GC (10s)
     _cleanTimer = _cleanTimer + dt
@@ -415,7 +510,7 @@ Cn(Run.Heartbeat:Connect(function(dt)
 
     -- ESP (0.1s throttle)
     _espTimer = _espTimer + dt
-    if _espTimer >= 0.1 then
+    if _espTimer >= _ESP_RATE then
         _espTimer = 0
         if not S.ESP and not S.Tracers then
             for _,d in next,ESP do hideESPEntry(d) end
@@ -601,21 +696,21 @@ local MT=Tabs.Movement; local PT=Tabs.Potions; local MiT=Tabs.Misc; local ST=Tab
 
 CT:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
 local AuraToggle=CT:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=S.KillAura,Callback=function(v) S.KillAura=v end})
-CT:AddSlider("AuraRange",{Title="Aura Range",Min=0,Max=1000,Default=S.AuraRange,Suffix=" studs",Rounding=0,Callback=function(v) S.AuraRange=v end})
-CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=math.floor(S.AttackSpeed*1000),Suffix=" ms",Rounding=0,Callback=function(v) S.AttackSpeed=v/1000 end})
+CT:AddSlider("AuraRange",{Title="Aura Range",Min=0,Max=1000,Default=S.AuraRange,Suffix=" studs",Callback=function(v) S.AuraRange=v end})
+CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=math.floor(S.AttackSpeed*1000),Suffix=" ms",Callback=function(v) S.AttackSpeed=v/1000 end})
 CT:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.AuraMode,Callback=function(v) S.AuraMode=v end})
-CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=S.BurstCooldown,Suffix="s",Rounding=0,Callback=function(v) S.BurstCooldown=v end})
+CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=S.BurstCooldown,Suffix="s",Callback=function(v) S.BurstCooldown=v end})
 CT:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=S.AutoTween,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
-CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=math.floor(S.TweenSpeed*100),Suffix=" ms",Rounding=0,Callback=function(v) S.TweenSpeed=v/100 end})
+CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=math.floor(S.TweenSpeed*100),Suffix=" ms",Callback=function(v) S.TweenSpeed=v/100 end})
 CT:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
-    if v then local ev=RS.remotes.gameEndVote; pcall(ev.FireServer,ev,"replay") end
+    if v then local rem=RS:FindFirstChild("remotes"); local ev=rem and rem:FindFirstChild("gameEndVote"); if ev then pcall(ev.FireServer,ev,"replay") end end
 end})
 
 RT:AddParagraph({Title="Note",Content="Eye of Smite is the best sword for Raid mode."})
 RT:AddToggle("RaidAura",{Title="Raid Aura Kill",Default=S.RaidAura,Callback=function(v) S.RaidAura=v end})
-RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=S.RaidAuraRange,Suffix=" studs",Rounding=0,Callback=function(v) S.RaidAuraRange=v end})
+RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=S.RaidAuraRange,Suffix=" studs",Callback=function(v) S.RaidAuraRange=v end})
 RT:AddDropdown("RaidAuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.RaidAuraMode,Callback=function(v) S.RaidAuraMode=v end})
-RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=S.RaidBurstCD,Suffix="s",Rounding=0,Callback=function(v) S.RaidBurstCD=v end})
+RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=S.RaidBurstCD,Suffix="s",Callback=function(v) S.RaidBurstCD=v end})
 
 ET:AddToggle("ESPBoxes",{Title="ESP Boxes",Description="Boxes + health bars",Default=S.ESP,Callback=function(v) S.ESP=v; if not v and not S.Tracers then clearESP() end end})
 ET:AddToggle("Tracers",{Title="Tracers",Description="Lines to enemies",Default=S.Tracers,Callback=function(v) S.Tracers=v; if not v and not S.ESP then clearESP() end end})
@@ -626,13 +721,13 @@ ET:AddColorpicker("ESPColor",{Title="ESP Color",Default=S.ESPColor,Callback=func
 ET:AddColorpicker("TracerColor",{Title="Tracer Color",Default=S.TracerColor,Callback=function(v) S.TracerColor=v end})
 ET:AddDropdown("TracerOrigin",{Title="Tracer Origin",Values={"Bottom","Center"},Default=S.TracerOrigin,Callback=function(v) S.TracerOrigin=v end})
 
-MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=S.WalkSpeed,Suffix=" sp",Rounding=0,Callback=function(v) S.WalkSpeed=v; applySpeed() end})
-MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=S.JumpPower,Rounding=0,Callback=function(v) S.JumpPower=v; applySpeed() end})
+MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=S.WalkSpeed,Suffix=" sp",Callback=function(v) S.WalkSpeed=v; applySpeed() end})
+MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=S.JumpPower,Callback=function(v) S.JumpPower=v; applySpeed() end})
 MT:AddToggle("FlyToggle",{Title="Fly",Description="W/A/S/D + Space (up) + LCtrl (down)",Default=S.Fly,Callback=function(v) if v then startFly() else stopFly() end end})
-MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=S.FlySpeed,Suffix=" sp",Rounding=0,Callback=function(v) S.FlySpeed=v end})
+MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=S.FlySpeed,Suffix=" sp",Callback=function(v) S.FlySpeed=v end})
 
 PT:AddToggle("AutoDrink",{Title="Auto Drink",Description="Drink when health falls below threshold",Default=S.AutoDrink,Callback=function(v) S.AutoDrink=v; if v then startDrink() else stopDrink() end end})
-PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=S.DrinkThreshold,Suffix="%",Rounding=0,Callback=function(v) S.DrinkThreshold=v end})
+PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=S.DrinkThreshold,Suffix="%",Callback=function(v) S.DrinkThreshold=v end})
 PT:AddDropdown("DrinkPotions",{Title="Potions to Drink",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.DrinkPotions=v end})
 PT:AddToggle("AutoBuy",{Title="Auto Buy",Description="Purchase potions on a timer",Default=S.AutoBuy,Callback=function(v) S.AutoBuy=v; if v then startBuy() else stopBuy() end end})
 PT:AddDropdown("BuyPotions",{Title="Potions to Buy",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.BuyPotions=v end})
