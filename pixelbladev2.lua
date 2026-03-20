@@ -1,7 +1,8 @@
+-- ── Cleanup ───────────────────────────────────────────────────────────────────
 do
     local function nuke(p)
         for _,v in ipairs(p:GetChildren()) do
-            if v:IsA("ScreenGui") and (v.Name:find("Fluent") or v.Name=="PB_Overlay" or v.Name=="PB_FPS") then
+            if v:IsA("ScreenGui") and (v.Name:find("Fluent") or v.Name=="PB_Overlay" or v.Name=="PB_FPS" or v.Name=="PB_Maint") then
                 pcall(v.Destroy,v)
             end
         end
@@ -15,6 +16,7 @@ end
 local _genv = (getgenv and getgenv()) or {}
 _genv._PB_SessionStart = _genv._PB_SessionStart or tick()
 
+-- ── Services ──────────────────────────────────────────────────────────────────
 local Players      = game:GetService("Players")
 local RS           = game:GetService("ReplicatedStorage")
 local UIS          = game:GetService("UserInputService")
@@ -30,71 +32,98 @@ local LP           = Players.LocalPlayer
 local Cam          = WS.CurrentCamera
 local IsMobile     = UIS.TouchEnabled and not UIS.KeyboardEnabled
 
+-- ── Supabase ──────────────────────────────────────────────────────────────────
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
 local httpReq = http_request or request or (syn and syn.request) or (fluxus and fluxus.request) or (http and http.request) or nil
-if httpReq then
-    task.spawn(function()
-        local pid = game.PlaceId
-        local now = os.date("!%Y-%m-%dT%H:%M:%SZ")
-        local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY,["Content-Type"]="application/json",["Prefer"]="resolution=merge-duplicates,return=minimal"}
-        pcall(httpReq,{Url=SUPABASE_URL.."/rest/v1/rpc/increment_execution",Method="POST",Headers=h,Body='{"p_place_id":'..pid..'}'})
-        pcall(httpReq,{Url=SUPABASE_URL.."/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",Method="POST",Headers=h,
-            Body=HttpService:JSONEncode({roblox_user_id=LP.UserId,username=LP.Name,place_id=pid,execution_count=1,first_seen=now,last_seen=now})})
-    end)
+
+local function sbGET(ep)
+    if not httpReq then return nil end
+    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY}
+    local ok,r = pcall(httpReq,{Url=SUPABASE_URL..ep,Method="GET",Headers=h})
+    return (ok and r) or nil
+end
+local function sbPOST(ep,body)
+    if not httpReq then return end
+    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY,["Content-Type"]="application/json",["Prefer"]="resolution=merge-duplicates,return=minimal"}
+    pcall(httpReq,{Url=SUPABASE_URL..ep,Method="POST",Headers=h,Body=type(body)=="string" and body or HttpService:JSONEncode(body)})
 end
 
-
--- ── Live maintenance countdown (syncs with Supabase end_timestamp) ────────────
+-- ── Logger ────────────────────────────────────────────────────────────────────
 task.spawn(function()
-    if not httpReq then return end
     local pid = game.PlaceId
-    local GAMES = {
-        [18172550962]="Pixel Blade",[18172553902]="Pixel Blade",[133884972346775]="Pixel Blade",
-        [138013005633222]="Loot Hero",[77439980360504]="Loot Hero",
-        [119987266683883]="Survive Lava",[136801880565837]="Flick",[123974602339071]="UNC Tester",
-    }
-    local gameName = GAMES[pid]; if not gameName then return end
-    local h = {["apikey"]=SUPABASE_KEY,["Authorization"]="Bearer "..SUPABASE_KEY}
-    local ok,r = pcall(httpReq,{Url=SUPABASE_URL.."/rest/v1/game_status?game_name=eq."..HttpService:UrlEncode(gameName).."&select=maintenance,maintenance_msg,end_timestamp",Method="GET",Headers=h})
-    if not ok or not r or not r.Body then return end
-    local ok2,data = pcall(HttpService.JSONDecode,HttpService,r.Body)
-    if not ok2 or not data or #data==0 then return end
-    local row = data[1]
-    if not row.maintenance then return end
+    local now = os.date("!%Y-%m-%dT%H:%M:%SZ")
+    sbPOST("/rest/v1/rpc/increment_execution",'{"p_place_id":'..pid..'}')
+    sbPOST("/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",
+        {roblox_user_id=LP.UserId,username=LP.Name,place_id=pid,execution_count=1,first_seen=now,last_seen=now})
+end)
 
-    local msg = row.maintenance_msg or "This script is under maintenance."
+-- ── Game registry ─────────────────────────────────────────────────────────────
+local GAME_NAMES = {
+    [18172550962]="Pixel Blade",[18172553902]="Pixel Blade",[133884972346775]="Pixel Blade",
+    [138013005633222]="Loot Hero",[77439980360504]="Loot Hero",
+    [119987266683883]="Survive Lava",[136801880565837]="Flick",[123974602339071]="UNC Tester",
+}
+local gameName = GAME_NAMES[game.PlaceId]
+
+-- ── Maintenance check + live countdown ───────────────────────────────────────
+task.spawn(function()
+    if not gameName then return end
+    local r = sbGET("/rest/v1/game_status?game_name=eq."..HttpService:UrlEncode(gameName).."&select=maintenance,maintenance_msg,end_timestamp")
+    if not r or not r.Body then return end
+    local ok,data = pcall(HttpService.JSONDecode,HttpService,r.Body)
+    if not ok or not data or #data==0 or not data[1].maintenance then return end
+    local row = data[1]
+    local msg  = row.maintenance_msg or "This script is under maintenance."
     local endTs = row.end_timestamp
 
+    -- Build draggable maintenance UI
     local sg = Instance.new("ScreenGui")
     sg.Name="PB_Maint"; sg.ResetOnSpawn=false; sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
+
     local frame = Instance.new("Frame")
     frame.Size=UDim2.new(0,420,0,140); frame.Position=UDim2.new(0.5,-210,0.5,-70)
     frame.BackgroundColor3=Color3.fromRGB(12,12,18); frame.BorderSizePixel=0; frame.Active=true; frame.Parent=sg
     Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
     local stroke=Instance.new("UIStroke",frame); stroke.Color=Color3.fromRGB(245,158,11); stroke.Thickness=2
-    local titleLbl=Instance.new("TextLabel"); titleLbl.Size=UDim2.new(1,-44,0,38); titleLbl.Position=UDim2.new(0,14,0,0)
+
+    local titleLbl=Instance.new("TextLabel")
+    titleLbl.Size=UDim2.new(1,-44,0,38); titleLbl.Position=UDim2.new(0,14,0,0)
     titleLbl.BackgroundTransparency=1; titleLbl.Text=gameName.." - Maintenance"
     titleLbl.Font=Enum.Font.GothamBold; titleLbl.TextSize=14; titleLbl.TextColor3=Color3.fromRGB(245,158,11)
     titleLbl.TextXAlignment=Enum.TextXAlignment.Left; titleLbl.Parent=frame
-    local msgLbl=Instance.new("TextLabel"); msgLbl.Size=UDim2.new(1,-28,0,36); msgLbl.Position=UDim2.new(0,14,0,40)
+
+    local msgLbl=Instance.new("TextLabel")
+    msgLbl.Size=UDim2.new(1,-28,0,36); msgLbl.Position=UDim2.new(0,14,0,40)
     msgLbl.BackgroundTransparency=1; msgLbl.Text=msg; msgLbl.Font=Enum.Font.Gotham; msgLbl.TextSize=12; msgLbl.TextWrapped=true
     msgLbl.TextColor3=Color3.fromRGB(180,180,180); msgLbl.TextXAlignment=Enum.TextXAlignment.Left; msgLbl.Parent=frame
-    local cdLbl=Instance.new("TextLabel"); cdLbl.Size=UDim2.new(1,-28,0,28); cdLbl.Position=UDim2.new(0,14,0,80)
+
+    local cdLbl=Instance.new("TextLabel")
+    cdLbl.Size=UDim2.new(1,-28,0,28); cdLbl.Position=UDim2.new(0,14,0,80)
     cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=18
-    cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left; cdLbl.Parent=frame
-    local closeBtn=Instance.new("TextButton"); closeBtn.Size=UDim2.new(0,30,0,30); closeBtn.Position=UDim2.new(1,-38,0,4)
-    closeBtn.BackgroundColor3=Color3.fromRGB(40,40,50); closeBtn.Text="X"; closeBtn.Font=Enum.Font.GothamBold
-    closeBtn.TextSize=13; closeBtn.TextColor3=Color3.fromRGB(200,200,200); closeBtn.BorderSizePixel=0; closeBtn.Parent=frame
+    cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left
+    cdLbl.Text="Ends in: --:--:--"; cdLbl.Parent=frame
+
+    local closeBtn=Instance.new("TextButton")
+    closeBtn.Size=UDim2.new(0,30,0,30); closeBtn.Position=UDim2.new(1,-38,0,4)
+    closeBtn.BackgroundColor3=Color3.fromRGB(40,40,50); closeBtn.Text="X"
+    closeBtn.Font=Enum.Font.GothamBold; closeBtn.TextSize=13
+    closeBtn.TextColor3=Color3.fromRGB(200,200,200); closeBtn.BorderSizePixel=0; closeBtn.Parent=frame
     Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,6)
     closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
     closeBtn.TouchTap:Connect(function() sg:Destroy() end)
 
-    -- Drag via UIS
-    local dragging,dragStart,frameStart=false,nil,nil
-    frame.InputBegan:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=true;dragStart=i.Position;frameStart=frame.Position end end)
-    frame.InputEnded:Connect(function(i) if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end end)
-    local mc=UIS.InputChanged:Connect(function(i)
+    -- Smooth drag via UIS
+    local dragging,dragStart,frameStart = false,nil,nil
+    frame.InputBegan:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            dragging=true; dragStart=i.Position; frameStart=frame.Position
+        end
+    end)
+    frame.InputEnded:Connect(function(i)
+        if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end
+    end)
+    local mc = UIS.InputChanged:Connect(function(i)
         if not dragging then return end
         if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
         local d=i.Position-dragStart; local vp=Cam.ViewportSize
@@ -102,48 +131,73 @@ task.spawn(function()
     end)
     sg.Destroying:Connect(function() mc:Disconnect() end)
 
-    -- Countdown tick
-    local countConn; countConn=Run.Heartbeat:Connect(function()
-        if not sg or not sg.Parent then countConn:Disconnect(); return end
-        if endTs then
-            local remaining = 0
-            pcall(function()
-                local y,mo,d,hh,mm,ss = endTs:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
-                if y then
-                    local endEpoch = os.time({year=tonumber(y),month=tonumber(mo),day=tonumber(d),hour=tonumber(hh),min=tonumber(mm),sec=tonumber(ss)})
-                    remaining = math.max(0, endEpoch - os.time())
+    -- Parse end_timestamp once
+    local endEpoch = nil
+    if endTs then
+        pcall(function()
+            local y,mo,d,hh,mm,ss = endTs:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
+            if y then endEpoch = os.time({year=tonumber(y),month=tonumber(mo),day=tonumber(d),hour=tonumber(hh),min=tonumber(mm),sec=tonumber(ss)}) end
+        end)
+    end
+
+    -- Countdown: throttled to 1s updates via task.spawn loop (not every Heartbeat frame)
+    task.spawn(function()
+        while sg and sg.Parent do
+            if endEpoch then
+                local rem = math.max(0, endEpoch - os.time())
+                local h2,m2,s2 = math.floor(rem/3600),math.floor((rem%3600)/60),rem%60
+                if cdLbl and cdLbl.Parent then
+                    cdLbl.Text = string.format("Ends in: %02d:%02d:%02d",h2,m2,s2)
                 end
-            end)
-            local h2=math.floor(remaining/3600); local m2=math.floor((remaining%3600)/60); local s2=remaining%60
-            cdLbl.Text=string.format("Ends in: %02d:%02d:%02d",h2,m2,s2)
-            if remaining<=0 then cdLbl.Text="Maintenance ending soon..."; task.wait(5); pcall(sg.Destroy,sg); countConn:Disconnect() end
-        else
-            cdLbl.Text="Duration: Unknown"
+                if rem <= 0 then
+                    if cdLbl and cdLbl.Parent then cdLbl.Text = "Maintenance ending soon..." end
+                    task.wait(5); pcall(sg.Destroy,sg); return
+                end
+            else
+                if cdLbl and cdLbl.Parent then cdLbl.Text = "Duration unknown" end
+            end
+            task.wait(1)
         end
     end)
-    warn("[vhxLUA] "..gameName.." is under maintenance.")
+
+    warn("[vhxLUA] "..gameName.." is under maintenance. Script halted.")
+    -- Script stops here — maintenance block returns
     return
 end)
 
-local Fluent           = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/releases/latest/download/main.lua"))()
+-- ── Fluent UI Library (raw URL — no redirect) ─────────────────────────────────
+local Fluent           = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/src/main.lua"))()
 local SaveManager      = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/SaveManager.lua"))()
 local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/dawid-scripts/Fluent/master/Addons/InterfaceManager.lua"))()
+assert(Fluent, "[vhxLUA] Fluent failed to load.")
 
-assert(Fluent, "[vhxLUA] Fluent failed to load. Check your internet or executor.")
+-- ── Low-end device detection (synchronous) ────────────────────────────────────
+local _isLowEnd = false
+do
+    local s,t,done = 0,0,false; local c
+    c = Run.RenderStepped:Connect(function(dt)
+        s+=1; t+=dt
+        if s>=15 then c:Disconnect(); _isLowEnd=(s/t)<35; done=true end
+    end)
+    local t0=tick(); while not done and tick()-t0<1.5 do task.wait() end
+end
+
+-- Apply low-end optimizations immediately
+if _isLowEnd then
+    pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
+    pcall(function()
+        local L=game:GetService("Lighting"); L.GlobalShadows=false; L.FogEnd=100000
+        for _,v in ipairs(L:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect")
+            or v:IsA("ColorCorrectionEffect") or v:IsA("BloomEffect") then v.Enabled=false end
+        end
+    end)
+end
+
+-- ── Constants (pool sizes scale with device) ──────────────────────────────────
 local POTION_NAMES     = {"HealthFlask","DragonFlask","EnergyFlask"}
 local INTERVAL_OPTIONS = {1,5,10,20,30}
 local INTERVAL_STRS    = {"1s","5s","10s","20s","30s"}
--- Device detection for adaptive performance
-local _isLowEnd = false
-do
-    local s,t,done=0,0,false; local c
-    c=Run.RenderStepped:Connect(function(dt) s+=1;t+=dt; if s>=15 then c:Disconnect();_isLowEnd=(s/t)<35;done=true end end)
-    local t0=tick(); while not done and tick()-t0<1.5 do task.wait() end
-end
-if _isLowEnd then
-    pcall(function() settings().Rendering.QualityLevel=Enum.QualityLevel.Level01 end)
-    pcall(function() game:GetService("Lighting").GlobalShadows=false end)
-end
 local MAX_TARGETS      = _isLowEnd and 5  or 10
 local MIN_INTERVAL     = 0.08
 local BOSS_DAMAGE      = {BookHand=5000,Throne9=5000}
@@ -151,10 +205,11 @@ local POOL_SIZE        = _isLowEnd and 32 or 64
 local RAID_POOL_SIZE   = _isLowEnd and 16 or 32
 local _CACHE_RATE      = _isLowEnd and 1.0 or 0.5
 local _REFRESH_RATE    = _isLowEnd and 0.75 or 0.5
-local _ESP_RATE        = _isLowEnd and 0.2 or 0.1
+local _ESP_RATE        = _isLowEnd and 0.2  or 0.1
 local V3Z              = Vector3.zero
 local COS45            = math.cos(math.rad(45))
 
+-- ── Persistent state ──────────────────────────────────────────────────────────
 _genv.S = _genv.S or {
     KillAura=false,AuraRange=100,WalkSpeed=50,JumpPower=100,AttackSpeed=0.15,
     AntiAFK=false,ESP=false,Tracers=false,
@@ -169,10 +224,12 @@ _genv.S = _genv.S or {
 }
 local S = _genv.S
 
+-- ── FPS Widget ────────────────────────────────────────────────────────────────
 local _fpsGui = Instance.new("ScreenGui")
 _fpsGui.Name="PB_FPS"; _fpsGui.ResetOnSpawn=false; _fpsGui.DisplayOrder=999; _fpsGui.Parent=CoreGui
 local _fpsFrame = Instance.new("Frame")
-_fpsFrame.Size=UDim2.new(0,110,0,28); _fpsFrame.Position=UDim2.new(1,-120,0,10)
+_fpsFrame.Size=UDim2.new(0,110,0,28)
+_fpsFrame.Position=IsMobile and UDim2.new(0,10,0,10) or UDim2.new(1,-120,0,10)
 _fpsFrame.BackgroundColor3=Color3.fromRGB(10,10,10); _fpsFrame.BackgroundTransparency=0.25
 _fpsFrame.Active=true; _fpsFrame.Draggable=true; _fpsFrame.Parent=_fpsGui
 Instance.new("UICorner",_fpsFrame).CornerRadius=UDim.new(0,8)
@@ -182,13 +239,14 @@ _fpsLbl.Font=Enum.Font.GothamBold; _fpsLbl.TextSize=13
 _fpsLbl.TextColor3=Color3.new(1,1,1); _fpsLbl.Text="FPS: -- | --ms"; _fpsLbl.Parent=_fpsFrame
 
 local _pi; pcall(function() _pi=Stats.Network.ServerStatsItem["Data Ping"] end)
-local fps,ping = 0,0
-local _fpsF,_fpsDt,_pingT = 0,0,0
+local fps,ping,_fpsF,_fpsDt,_pingT = 0,0,0,0,0
 
+-- ── Connection pool ───────────────────────────────────────────────────────────
 local conns = {}
 local function Cn(c) conns[#conns+1]=c; return c end
-local function KillConns() for i=1,#conns do pcall(conns[i].Disconnect,conns[i]) end; conns={} end
+local function KillConns() for i=1,#conns do pcall(conns[i].Disconnect,conns[i]) end; table.clear(conns) end
 
+-- ── Remotes ───────────────────────────────────────────────────────────────────
 local Rem         = RS:FindFirstChild("remotes")
 local HitEv       = Rem and Rem:FindFirstChild("onHit")
 local ClaimEv     = Rem and Rem:FindFirstChild("claimCode")
@@ -197,31 +255,32 @@ local BuyEv       = Rem and Rem:FindFirstChild("requestPurchase")
 local swingRemote = Rem and Rem:FindFirstChild("swing")
 local blockRemote = Rem and Rem:FindFirstChild("block")
 
+-- ── Object Pool: Enemy cache ──────────────────────────────────────────────────
 local _enemies = table.create(POOL_SIZE)
 for i=1,POOL_SIZE do _enemies[i]={model=nil,humanoid=nil,root=nil} end
-local _enemyCount  = 0
-local _cachedChar  = nil
-local _wsDirty     = true
-local _wsCache     = {}
+local _enemyCount = 0
+local _cachedChar = nil
+local _wsDirty    = true
+local _wsCache    = {}
 
 local function _rebuildWSCache()
     table.clear(_wsCache)
     local n=0
     for _,v in ipairs(WS:GetDescendants()) do
-        if v:IsA("Model") then n=n+1; _wsCache[n]=v end
+        if v:IsA("Model") then n+=1; _wsCache[n]=v end
     end
 end
 
-WS.DescendantAdded:Connect(function(d) if d:IsA("Model") then _wsDirty=true end end)
-WS.DescendantRemoving:Connect(function(d) if d:IsA("Model") then _wsDirty=true end end)
+-- Use events instead of polling for cache invalidation
+Cn(WS.DescendantAdded:Connect(function(d) if d:IsA("Model") then _wsDirty=true end end))
+Cn(WS.DescendantRemoving:Connect(function(d) if d:IsA("Model") then _wsDirty=true end end))
 
 local function _refreshEnemies()
     _cachedChar=LP.Character
     local char=_cachedChar
     local myRP=char and char:FindFirstChild("HumanoidRootPart")
     if not myRP or not (S.KillAura or S.ESP or S.Tracers or S.AutoTween) then _enemyCount=0; return end
-    local myPos=myRP.Position
-    local mx,my,mz=myPos.X,myPos.Y,myPos.Z
+    local mx,my,mz=myRP.Position.X,myRP.Position.Y,myRP.Position.Z
     local scanRange=(S.ESP or S.Tracers) and 2000 or S.AuraRange
     if S.AuraRange>scanRange then scanRange=S.AuraRange end
     local sr2=scanRange*scanRange
@@ -234,17 +293,17 @@ local function _refreshEnemies()
         if not h or h.Health<=0 then continue end
         local rp=m:FindFirstChild("HumanoidRootPart") or m:FindFirstChild("Torso") or m:FindFirstChild("UpperTorso") or m.PrimaryPart
         if not rp then continue end
-        local rpos=rp.Position
-        local dx,dy,dz=rpos.X-mx,rpos.Y-my,rpos.Z-mz
+        local dx,dy,dz=rp.Position.X-mx,rp.Position.Y-my,rp.Position.Z-mz
         if dx*dx+dy*dy+dz*dz<=sr2 then
-            idx=idx+1
+            idx+=1
             local s=_enemies[idx]; s.model=m; s.humanoid=h; s.root=rp
         end
     end
     _enemyCount=idx
 end
 
-local _damageable,_hpSnapshot = {},{}
+-- ── Damage tracking ───────────────────────────────────────────────────────────
+local _damageable,_hpSnapshot={},{}
 local function recordSnapshot()
     for i=1,_enemyCount do local e=_enemies[i]; if e.model then _hpSnapshot[e.model]=e.humanoid.Health end end
 end
@@ -255,6 +314,7 @@ local function confirmDamageable()
     end
 end
 
+-- ── AutoTween ─────────────────────────────────────────────────────────────────
 local _activeTween,_tweenTarget,_tweenDiedConn=nil,nil,nil
 local function stopTween()
     if _activeTween then _activeTween:Cancel(); _activeTween=nil end
@@ -277,6 +337,7 @@ local function getNearestEnemy()
     return best
 end
 
+-- ── Raid Aura ─────────────────────────────────────────────────────────────────
 local RAID_IGNORED={["teeth trap"]=true,["Teeth Trap"]=true,["teeth_trap"]=true,["Teeth_Trap"]=true}
 local _raidPool=table.create(RAID_POOL_SIZE)
 for i=1,RAID_POOL_SIZE do _raidPool[i]={humanoid=nil} end
@@ -287,7 +348,7 @@ local function getRaidEnemies()
     if not myR then return _raidPool,0 end
     local mode=S.RaidAuraMode
     if mode=="Burst" then if tick()-S.RaidLastBurst<S.RaidBurstCD then return _raidPool,0 end; S.RaidLastBurst=tick() end
-    local myPos=myR.Position; local mx,my,mz=myPos.X,myPos.Y,myPos.Z
+    local mx,my,mz=myR.Position.X,myR.Position.Y,myR.Position.Z
     local r2=S.RaidAuraRange*S.RaidAuraRange
     local doCone=mode=="Cone"
     local camCF=doCone and Cam.CFrame or nil
@@ -300,26 +361,29 @@ local function getRaidEnemies()
         if not m or not m.Parent or m==char or RAID_IGNORED[m.Name] then continue end
         local h=m:FindFirstChild("Humanoid"); local rp=m:FindFirstChild("HumanoidRootPart")
         if not h or not rp or h.Health<=0 then continue end
-        local rpPos=rp.Position
-        local dx,dy,dz=rpPos.X-mx,rpPos.Y-my,rpPos.Z-mz
+        local dx,dy,dz=rp.Position.X-mx,rp.Position.Y-my,rp.Position.Z-mz
         if dx*dx+dy*dy+dz*dz>r2 then continue end
         if doCone then
-            local ex,ey,ez=rpPos.X-camPos.X,rpPos.Y-camPos.Y,rpPos.Z-camPos.Z
+            local ex,ey,ez=rp.Position.X-camPos.X,rp.Position.Y-camPos.Y,rp.Position.Z-camPos.Z
             local mag=math.sqrt(ex*ex+ey*ey+ez*ez)
             if mag>0 and lookVec.X*(ex/mag)+lookVec.Y*(ey/mag)+lookVec.Z*(ez/mag)<COS45 then continue end
         end
-        idx=idx+1; _raidPool[idx].humanoid=h
+        idx+=1; _raidPool[idx].humanoid=h
     end
     return _raidPool,idx
 end
 
+-- ── Fly ───────────────────────────────────────────────────────────────────────
 local _flyBV,_flyBG=nil,nil
 local function stopFly()
     S.Fly=false
     local char=LP.Character
     local hrp=char and char:FindFirstChild("HumanoidRootPart")
     local hum=char and char:FindFirstChildOfClass("Humanoid")
-    if hrp then local bv=hrp:FindFirstChild("PB_FlyBV"); if bv then bv:Destroy() end; local bg=hrp:FindFirstChild("PB_FlyBG"); if bg then bg:Destroy() end end
+    if hrp then
+        local bv=hrp:FindFirstChild("PB_FlyBV"); if bv then bv:Destroy() end
+        local bg=hrp:FindFirstChild("PB_FlyBG"); if bg then bg:Destroy() end
+    end
     if hum then hum.PlatformStand=false end
     _flyBV=nil; _flyBG=nil
 end
@@ -334,6 +398,7 @@ local function startFly()
     _flyBG=Instance.new("BodyGyro"); _flyBG.Name="PB_FlyBG"; _flyBG.MaxTorque=Vector3.new(1e5,1e5,1e5); _flyBG.Parent=hrp
 end
 
+-- ── ESP ───────────────────────────────────────────────────────────────────────
 local ESP,_activeModels={},{}
 local function clearESP()
     for _,d in next,ESP do
@@ -377,6 +442,7 @@ local function hideESPEntry(d)
     d.nl.Visible=false; d.hb.Visible=false; d.hf.Visible=false; d.dl.Visible=false; d.tr.Visible=false
 end
 
+-- ── Speed / Character ─────────────────────────────────────────────────────────
 local function applySpeed()
     local c=LP.Character; if not c then return end
     local h=c:FindFirstChildOfClass("Humanoid"); if not h then return end
@@ -391,42 +457,32 @@ end
 if LP.Character then hookCharacter(LP.Character) end
 Cn(LP.CharacterAdded:Connect(hookCharacter))
 
--- ── MASTER HEARTBEAT (single loop replacing 5 separate ones) ─────────────────
-local _wsCacheTimer = 0
-local _refreshTimer = 0
-local _auraTimer    = 0
-local _raidTimer    = 0
-local _blockTimer   = 0
-local _espTimer     = 0
-local _cleanTimer   = 0
+-- ── MASTER HEARTBEAT (single loop — all timers merged) ────────────────────────
+local _wsCacheTimer,_refreshTimer,_auraTimer,_raidTimer,_blockTimer,_espTimer,_cleanTimer = 0,0,0,0,0,0,0
 
 Cn(Run.Heartbeat:Connect(function(dt)
-    -- FPS + ping counter (no RenderStepped needed)
-    _fpsF = _fpsF + 1; _fpsDt = _fpsDt + dt
-    _pingT = _pingT + dt
-    if _fpsDt >= 1 then
-        fps = math.floor(_fpsF / _fpsDt); _fpsF = 0; _fpsDt = 0
-        _fpsLbl.TextColor3 = fps>=60 and Color3.fromRGB(0,220,0) or fps>=30 and Color3.fromRGB(255,170,0) or Color3.fromRGB(220,0,0)
-        _fpsLbl.Text = "FPS: "..fps.." | "..ping.."ms"
+    -- FPS counter
+    _fpsF+=1; _fpsDt+=dt; _pingT+=dt
+    if _fpsDt>=1 then
+        fps=math.floor(_fpsF/_fpsDt); _fpsF=0; _fpsDt=0
+        _fpsLbl.TextColor3=fps>=60 and Color3.fromRGB(0,220,0) or fps>=30 and Color3.fromRGB(255,170,0) or Color3.fromRGB(220,0,0)
+        _fpsLbl.Text="FPS: "..fps.." | "..ping.."ms"
     end
-    if _pingT >= 2 then
-        _pingT = 0
-        if _pi then local ok,v=pcall(_pi.GetValue,_pi); if ok and v then ping=math.floor(v) end end
-    end
+    if _pingT>=2 then _pingT=0; if _pi then local ok,v=pcall(_pi.GetValue,_pi); if ok and v then ping=math.floor(v) end end end
 
-    -- WS cache rebuild (dirty-flag gated, 0.5s throttle)
-    _wsCacheTimer = _wsCacheTimer + dt
-    if _wsDirty and _wsCacheTimer >= _CACHE_RATE then _wsCacheTimer=0; _wsDirty=false; _rebuildWSCache() end
+    -- WS cache (dirty-flag + rate limit)
+    _wsCacheTimer+=dt
+    if _wsDirty and _wsCacheTimer>=_CACHE_RATE then _wsCacheTimer=0; _wsDirty=false; _rebuildWSCache() end
 
-    -- Enemy refresh (0.5s)
-    _refreshTimer = _refreshTimer + dt
-    if _refreshTimer >= _REFRESH_RATE then _refreshTimer=0; _refreshEnemies() end
+    -- Enemy refresh
+    _refreshTimer+=dt
+    if _refreshTimer>=_REFRESH_RATE then _refreshTimer=0; _refreshEnemies() end
 
-    -- Damageable table GC (10s)
-    _cleanTimer = _cleanTimer + dt
-    if _cleanTimer >= 10 then
-        _cleanTimer = 0
-        local alive = {}
+    -- GC damageable table
+    _cleanTimer+=dt
+    if _cleanTimer>=10 then
+        _cleanTimer=0
+        local alive={}
         for i=1,_enemyCount do if _enemies[i].model then alive[_enemies[i].model]=true end end
         for k in next,_damageable do if not alive[k] then _damageable[k]=nil end end
         for k in next,_hpSnapshot do if not alive[k] then _hpSnapshot[k]=nil end end
@@ -434,34 +490,30 @@ Cn(Run.Heartbeat:Connect(function(dt)
 
     -- Kill Aura
     if S.KillAura and HitEv and HitEv.Parent then
-        _auraTimer = _auraTimer + dt
-        local interval = math.max(S.AttackSpeed, MIN_INTERVAL)
-        if _auraTimer >= interval then
-            _auraTimer = 0
-            local char = LP.Character; if char then
-                local myR = char:FindFirstChild("HumanoidRootPart"); if myR then
-                    local myPos = myR.Position; local count = 0
-                    local mode = S.AuraMode
-                    if mode == "Burst" then if tick()-S._lastBurst < S.BurstCooldown then goto aura_done end; S._lastBurst = tick() end
-                    local camCF = Cam.CFrame; local lookVec = camCF.LookVector; local camPos = camCF.Position
-                    local range2 = S.AuraRange * S.AuraRange
+        _auraTimer+=dt
+        if _auraTimer>=math.max(S.AttackSpeed,MIN_INTERVAL) then
+            _auraTimer=0
+            local char=LP.Character; if char then
+                local myR=char:FindFirstChild("HumanoidRootPart"); if myR then
+                    local myPos=myR.Position; local count=0; local mode=S.AuraMode
+                    if mode=="Burst" then if tick()-S._lastBurst<S.BurstCooldown then goto aura_done end; S._lastBurst=tick() end
+                    local camCF=Cam.CFrame; local lookVec=camCF.LookVector; local camPos=camCF.Position
+                    local r2=S.AuraRange*S.AuraRange
                     recordSnapshot()
                     for i=1,_enemyCount do
-                        if count >= MAX_TARGETS then break end
-                        local e = _enemies[i]
-                        local h,rp,m = e.humanoid,e.root,e.model
+                        if count>=MAX_TARGETS then break end
+                        local e=_enemies[i]; local h,rp,m=e.humanoid,e.root,e.model
                         if not h or not h.Parent or h.Health<=0 or not rp then continue end
-                        local dx,dy,dz = rp.Position.X-myPos.X,rp.Position.Y-myPos.Y,rp.Position.Z-myPos.Z
-                        if dx*dx+dy*dy+dz*dz > range2 then continue end
-                        if mode == "Cone" then
-                            local ex,ey,ez = rp.Position.X-camPos.X,rp.Position.Y-camPos.Y,rp.Position.Z-camPos.Z
-                            local mag = math.sqrt(ex*ex+ey*ey+ez*ez)
-                            if mag>0 and lookVec.X*(ex/mag)+lookVec.Y*(ey/mag)+lookVec.Z*(ez/mag) < COS45 then continue end
+                        local dx,dy,dz=rp.Position.X-myPos.X,rp.Position.Y-myPos.Y,rp.Position.Z-myPos.Z
+                        if dx*dx+dy*dy+dz*dz>r2 then continue end
+                        if mode=="Cone" then
+                            local ex,ey,ez=rp.Position.X-camPos.X,rp.Position.Y-camPos.Y,rp.Position.Z-camPos.Z
+                            local mag=math.sqrt(ex*ex+ey*ey+ez*ez)
+                            if mag>0 and lookVec.X*(ex/mag)+lookVec.Y*(ey/mag)+lookVec.Z*(ez/mag)<COS45 then continue end
                         end
-                        local dmg = BOSS_DAMAGE[m.Name] or 5000
-                        pcall(HitEv.FireServer,HitEv,h,dmg,{},0); count = count+1
+                        pcall(HitEv.FireServer,HitEv,h,BOSS_DAMAGE[m.Name] or 5000,{},0); count+=1
                     end
-                    task.delay(0.2, confirmDamageable)
+                    task.delay(0.2,confirmDamageable)
                     ::aura_done::
                 end
             end
@@ -470,15 +522,12 @@ Cn(Run.Heartbeat:Connect(function(dt)
 
     -- Raid Aura
     if S.RaidAura then
-        _raidTimer = _raidTimer + dt; _blockTimer = _blockTimer + dt
-        if _blockTimer >= 0.1 then
-            _blockTimer = 0
-            if blockRemote and blockRemote.Parent then pcall(blockRemote.FireServer,blockRemote,true) end
-        end
-        if _raidTimer >= 0.3 then
-            _raidTimer = 0
-            local list,n = getRaidEnemies()
-            if n > 0 then
+        _raidTimer+=dt; _blockTimer+=dt
+        if _blockTimer>=0.1 then _blockTimer=0; if blockRemote and blockRemote.Parent then pcall(blockRemote.FireServer,blockRemote,true) end end
+        if _raidTimer>=(_isLowEnd and 0.4 or 0.3) then
+            _raidTimer=0
+            local list,n=getRaidEnemies()
+            if n>0 then
                 if swingRemote and swingRemote.Parent then pcall(swingRemote.FireServer,swingRemote) end
                 if HitEv and HitEv.Parent then
                     for i=1,n do if list[i].humanoid then pcall(HitEv.FireServer,HitEv,list[i].humanoid,9999999999,{},0) end end
@@ -489,36 +538,34 @@ Cn(Run.Heartbeat:Connect(function(dt)
 
     -- AutoTween
     if S.AutoTween then
-        local char = LP.Character
-        local myR = char and char:FindFirstChild("HumanoidRootPart")
+        local char=LP.Character; local myR=char and char:FindFirstChild("HumanoidRootPart")
         if not myR then stopTween()
         else
-            local e = getNearestEnemy()
+            local e=getNearestEnemy()
             if not e or not e.root or not e.root.Parent then stopTween()
             elseif not (_tweenTarget==e.model and _activeTween and _activeTween.PlaybackState==Enum.PlaybackState.Playing) then
-                stopTween(); _tweenTarget = e.model
-                local dir = e.root.Position - myR.Position; local dist = dir.Magnitude
-                if dist >= 5 then
-                    local info = TweenInfo.new(math.clamp(dist/80, S.TweenSpeed, 0.5), Enum.EasingStyle.Linear)
-                    _activeTween = TweenService:Create(myR, info, {CFrame=CFrame.new(e.root.Position-dir.Unit*4, e.root.Position)})
+                stopTween(); _tweenTarget=e.model
+                local dir=e.root.Position-myR.Position; local dist=dir.Magnitude
+                if dist>=5 then
+                    _activeTween=TweenService:Create(myR,TweenInfo.new(math.clamp(dist/80,S.TweenSpeed,0.5),Enum.EasingStyle.Linear),{CFrame=CFrame.new(e.root.Position-dir.Unit*4,e.root.Position)})
                     _activeTween:Play()
-                    _tweenDiedConn = e.humanoid.Died:Connect(stopTween)
+                    _tweenDiedConn=e.humanoid.Died:Connect(stopTween)
                 end
             end
         end
     elseif _activeTween then stopTween() end
 
-    -- ESP (0.1s throttle)
-    _espTimer = _espTimer + dt
-    if _espTimer >= _ESP_RATE then
-        _espTimer = 0
+    -- ESP
+    _espTimer+=dt
+    if _espTimer>=_ESP_RATE then
+        _espTimer=0
         if not S.ESP and not S.Tracers then
             for _,d in next,ESP do hideESPEntry(d) end
         else
-            local char = _cachedChar or LP.Character
-            local myR = char and char:FindFirstChild("HumanoidRootPart")
-            local vp = Cam.ViewportSize
-            local tO = S.TracerOrigin~="Center" and Vector2.new(vp.X*.5,vp.Y) or Vector2.new(vp.X*.5,vp.Y*.5)
+            local char=_cachedChar or LP.Character
+            local myR=char and char:FindFirstChild("HumanoidRootPart")
+            local vp=Cam.ViewportSize
+            local tO=S.TracerOrigin~="Center" and Vector2.new(vp.X*.5,vp.Y) or Vector2.new(vp.X*.5,vp.Y*.5)
             table.clear(_activeModels)
             for i=1,_enemyCount do
                 local e=_enemies[i]
@@ -564,40 +611,39 @@ Cn(Run.Heartbeat:Connect(function(dt)
     end
 end))
 
--- ── Fly on RenderStepped (visual/physics — correct signal) ───────────────────
+-- ── Fly (RenderStepped for smooth physics) ────────────────────────────────────
 Cn(Run.RenderStepped:Connect(function()
     if not S.Fly then return end
-    local char = LP.Character
-    local hrp = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local char=LP.Character
+    local hrp=char and char:FindFirstChild("HumanoidRootPart")
+    local hum=char and char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then stopFly(); return end
     if not _flyBV or not _flyBV.Parent then startFly(); return end
-    hum.PlatformStand = true
-    local dx,dy,dz = 0,0,0
-    local cf = Cam.CFrame
-    if UIS:IsKeyDown(Enum.KeyCode.W)           then dx=dx+cf.LookVector.X; dy=dy+cf.LookVector.Y; dz=dz+cf.LookVector.Z end
-    if UIS:IsKeyDown(Enum.KeyCode.S)           then dx=dx-cf.LookVector.X; dy=dy-cf.LookVector.Y; dz=dz-cf.LookVector.Z end
-    if UIS:IsKeyDown(Enum.KeyCode.A)           then dx=dx-cf.RightVector.X; dy=dy-cf.RightVector.Y; dz=dz-cf.RightVector.Z end
-    if UIS:IsKeyDown(Enum.KeyCode.D)           then dx=dx+cf.RightVector.X; dy=dy+cf.RightVector.Y; dz=dz+cf.RightVector.Z end
-    if UIS:IsKeyDown(Enum.KeyCode.Space)       then dy=dy+1 end
-    if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dy=dy-1 end
-    local mag = math.sqrt(dx*dx+dy*dy+dz*dz)
-    _flyBV.Velocity = mag>0 and Vector3.new(dx/mag*S.FlySpeed,dy/mag*S.FlySpeed,dz/mag*S.FlySpeed) or V3Z
-    _flyBG.CFrame = cf
+    hum.PlatformStand=true
+    local dx,dy,dz=0,0,0; local cf=Cam.CFrame
+    if UIS:IsKeyDown(Enum.KeyCode.W)           then dx+=cf.LookVector.X;  dy+=cf.LookVector.Y;  dz+=cf.LookVector.Z  end
+    if UIS:IsKeyDown(Enum.KeyCode.S)           then dx-=cf.LookVector.X;  dy-=cf.LookVector.Y;  dz-=cf.LookVector.Z  end
+    if UIS:IsKeyDown(Enum.KeyCode.A)           then dx-=cf.RightVector.X; dy-=cf.RightVector.Y; dz-=cf.RightVector.Z end
+    if UIS:IsKeyDown(Enum.KeyCode.D)           then dx+=cf.RightVector.X; dy+=cf.RightVector.Y; dz+=cf.RightVector.Z end
+    if UIS:IsKeyDown(Enum.KeyCode.Space)       then dy+=1 end
+    if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then dy-=1 end
+    local mag=math.sqrt(dx*dx+dy*dy+dz*dz)
+    _flyBV.Velocity=mag>0 and Vector3.new(dx/mag*S.FlySpeed,dy/mag*S.FlySpeed,dz/mag*S.FlySpeed) or V3Z
+    _flyBG.CFrame=cf
 end))
 Cn(LP.CharacterAdded:Connect(function() _flyBV=nil; _flyBG=nil; if S.Fly then task.wait(1); startFly() end end))
 
-local LevelStartEv = Rem and Rem:FindFirstChild("levelStart")
+local LevelStartEv=Rem and Rem:FindFirstChild("levelStart")
 if LevelStartEv then
     Cn(LevelStartEv.OnClientEvent:Connect(function() _enemyCount=0; _wsDirty=true; task.wait(0.5); _refreshEnemies() end))
 end
 
-local _drinkThread = nil
+-- ── Auto Drink ────────────────────────────────────────────────────────────────
+local _drinkThread=nil
 local function stopDrink() if _drinkThread then task.cancel(_drinkThread); _drinkThread=nil end end
 local function startDrink()
-    stopDrink()
-    if not DrinkEv or not DrinkEv.Parent then Fluent:Notify({Title="Auto Drink",Content="drinkPotion remote not found!",Duration=3}); return end
-    _drinkThread = task.spawn(function()
+    stopDrink(); if not DrinkEv or not DrinkEv.Parent then return end
+    _drinkThread=task.spawn(function()
         while S.AutoDrink do
             task.wait(0.5)
             local char=LP.Character; local h=char and char:FindFirstChildOfClass("Humanoid")
@@ -608,52 +654,45 @@ local function startDrink()
     end)
 end
 
-local _buyThread = nil
+-- ── Auto Buy ──────────────────────────────────────────────────────────────────
+local _buyThread=nil
 local function stopBuy() if _buyThread then task.cancel(_buyThread); _buyThread=nil end end
 local function startBuy()
-    stopBuy()
-    if not BuyEv or not BuyEv.Parent then Fluent:Notify({Title="Auto Buy",Content="requestPurchase remote not found!",Duration=3}); return end
-    S.BuyTotal = 0
-    _buyThread = task.spawn(function()
+    stopBuy(); if not BuyEv or not BuyEv.Parent then return end
+    S.BuyTotal=0
+    _buyThread=task.spawn(function()
         while S.AutoBuy do
             if #S.BuyPotions==0 then task.wait(1); continue end
-            if S.BuyMax>0 and S.BuyTotal>=S.BuyMax then
-                S.AutoBuy=false; Fluent:Notify({Title="Auto Buy",Content="Max purchases ("..S.BuyMax..") reached!",Duration=4}); break
-            end
+            if S.BuyMax>0 and S.BuyTotal>=S.BuyMax then S.AutoBuy=false; break end
             local qty=math.max(1,S.BuyQty)
             if S.BuyMax>0 then qty=math.min(qty,S.BuyMax-S.BuyTotal) end
             for _,pn in ipairs(S.BuyPotions) do
                 for i=1,qty do pcall(BuyEv.FireServer,BuyEv,pn,"potion"); task.wait(0.15) end
             end
-            S.BuyTotal=S.BuyTotal+qty*math.max(1,#S.BuyPotions)
+            S.BuyTotal+=qty*math.max(1,#S.BuyPotions)
             task.wait(S.BuyInterval)
         end
     end)
 end
 
--- ── Anti-AFK (task.delay loop — zero Heartbeat overhead) ─────────────────────
-local afkConn = nil
+-- ── Anti-AFK ──────────────────────────────────────────────────────────────────
+local afkConn=nil
 local function setAFK(v)
-    S.AntiAFK = v
+    S.AntiAFK=v
     if afkConn then afkConn:Disconnect(); afkConn=nil end
     if v then
-        afkConn = {Disconnect=function() S.AntiAFK=false end}
+        afkConn={Disconnect=function() S.AntiAFK=false end}
         task.spawn(function()
-            while S.AntiAFK do
-                pcall(VU.CaptureController, VU)
-                pcall(VU.ClickButton2, VU, Vector2.new())
-                task.wait(60)
-            end
+            while S.AntiAFK do pcall(VU.CaptureController,VU); pcall(VU.ClickButton2,VU,Vector2.new()); task.wait(60) end
         end)
     end
 end
 
+-- ── Misc ──────────────────────────────────────────────────────────────────────
 local Codes={"BREAKABLES","AncientSands","PLUSHIE","625K","CrimsonNightmare","600K","575K","550K","FREEWISH","World4","525K","Rings","Alpha","Theo","FBG"}
 local claimed=false
 local function claim()
-    if claimed or not ClaimEv or not ClaimEv.Parent then
-        if not ClaimEv then Fluent:Notify({Title="Codes",Content="Remote not found.",Duration=3}) end; return
-    end
+    if claimed or not ClaimEv or not ClaimEv.Parent then return end
     claimed=true
     for _,code in next,Codes do pcall(ClaimEv.InvokeServer,ClaimEv,code); task.wait(0.3) end
 end
@@ -667,7 +706,6 @@ local function optimizeGraphics()
         end
     end)
     pcall(function() for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end end end)
-    Fluent:Notify({Title="Optimize",Content="Graphics lowered.",Duration=4})
 end
 
 local function rejoin()
@@ -675,14 +713,15 @@ local function rejoin()
     task.delay(2,function() pcall(function() TS:TeleportToPlaceInstance(game.PlaceId,game.JobId,LP) end) end)
 end
 
+-- ── Window ────────────────────────────────────────────────────────────────────
 local Win = Fluent:CreateWindow({
-    Title="Pixel Blade",SubTitle="By vhxLUA",
-    TabWidth=160,Size=UDim2.fromOffset(580,460),
-    Acrylic=true,Theme="Dark",
+    Title="Pixel Blade", SubTitle="by vhxLUA",
+    TabWidth=160, Size=UDim2.fromOffset(580,460),
+    Acrylic=not _isLowEnd, Theme="Dark",
     MinimizeKey=Enum.KeyCode.RightControl,
 })
 
-local Tabs={
+local Tabs = {
     Combat   = Win:AddTab({Title="Combat",   Icon="sword"   }),
     Raid     = Win:AddTab({Title="Raid",     Icon="flame"   }),
     ESP      = Win:AddTab({Title="ESP",      Icon="eye"     }),
@@ -691,103 +730,106 @@ local Tabs={
     Misc     = Win:AddTab({Title="Misc",     Icon="shield"  }),
     Settings = Win:AddTab({Title="Settings", Icon="settings"}),
 }
-local CT=Tabs.Combat; local RT=Tabs.Raid; local ET=Tabs.ESP
-local MT=Tabs.Movement; local PT=Tabs.Potions; local MiT=Tabs.Misc; local ST=Tabs.Settings
-
-CT:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
-local AuraToggle=CT:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=S.KillAura,Callback=function(v) S.KillAura=v end})
-CT:AddSlider("AuraRange",{Title="Aura Range",Min=0,Max=1000,Default=S.AuraRange,Suffix=" studs",Callback=function(v) S.AuraRange=v end})
-CT:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=math.floor(S.AttackSpeed*1000),Suffix=" ms",Callback=function(v) S.AttackSpeed=v/1000 end})
-CT:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.AuraMode,Callback=function(v) S.AuraMode=v end})
-CT:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=S.BurstCooldown,Suffix="s",Callback=function(v) S.BurstCooldown=v end})
-CT:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=S.AutoTween,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
-CT:AddSlider("TweenSpeed",{Title="Tween Base Speed",Min=5,Max=100,Default=math.floor(S.TweenSpeed*100),Suffix=" ms",Callback=function(v) S.TweenSpeed=v/100 end})
-CT:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
-    if v then local rem=RS:FindFirstChild("remotes"); local ev=rem and rem:FindFirstChild("gameEndVote"); if ev then pcall(ev.FireServer,ev,"replay") end end
-end})
-
-RT:AddParagraph({Title="Note",Content="Eye of Smite is the best sword for Raid mode."})
-RT:AddToggle("RaidAura",{Title="Raid Aura Kill",Default=S.RaidAura,Callback=function(v) S.RaidAura=v end})
-RT:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=S.RaidAuraRange,Suffix=" studs",Callback=function(v) S.RaidAuraRange=v end})
-RT:AddDropdown("RaidAuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default=S.RaidAuraMode,Callback=function(v) S.RaidAuraMode=v end})
-RT:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=S.RaidBurstCD,Suffix="s",Callback=function(v) S.RaidBurstCD=v end})
-
-ET:AddToggle("ESPBoxes",{Title="ESP Boxes",Description="Boxes + health bars",Default=S.ESP,Callback=function(v) S.ESP=v; if not v and not S.Tracers then clearESP() end end})
-ET:AddToggle("Tracers",{Title="Tracers",Description="Lines to enemies",Default=S.Tracers,Callback=function(v) S.Tracers=v; if not v and not S.ESP then clearESP() end end})
-ET:AddToggle("ShowNames",{Title="Show Names",Default=S.ShowNames,Callback=function(v) S.ShowNames=v end})
-ET:AddToggle("ShowHealth",{Title="Show Health",Default=S.ShowHealth,Callback=function(v) S.ShowHealth=v end})
-ET:AddToggle("ShowDistance",{Title="Show Distance",Default=S.ShowDistance,Callback=function(v) S.ShowDistance=v end})
-ET:AddColorpicker("ESPColor",{Title="ESP Color",Default=S.ESPColor,Callback=function(v) S.ESPColor=v end})
-ET:AddColorpicker("TracerColor",{Title="Tracer Color",Default=S.TracerColor,Callback=function(v) S.TracerColor=v end})
-ET:AddDropdown("TracerOrigin",{Title="Tracer Origin",Values={"Bottom","Center"},Default=S.TracerOrigin,Callback=function(v) S.TracerOrigin=v end})
-
-MT:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=S.WalkSpeed,Suffix=" sp",Callback=function(v) S.WalkSpeed=v; applySpeed() end})
-MT:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=S.JumpPower,Callback=function(v) S.JumpPower=v; applySpeed() end})
-MT:AddToggle("FlyToggle",{Title="Fly",Description="W/A/S/D + Space (up) + LCtrl (down)",Default=S.Fly,Callback=function(v) if v then startFly() else stopFly() end end})
-MT:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=S.FlySpeed,Suffix=" sp",Callback=function(v) S.FlySpeed=v end})
-
-PT:AddToggle("AutoDrink",{Title="Auto Drink",Description="Drink when health falls below threshold",Default=S.AutoDrink,Callback=function(v) S.AutoDrink=v; if v then startDrink() else stopDrink() end end})
-PT:AddSlider("DrinkThreshold",{Title="Health Threshold",Min=1,Max=100,Default=S.DrinkThreshold,Suffix="%",Callback=function(v) S.DrinkThreshold=v end})
-PT:AddDropdown("DrinkPotions",{Title="Potions to Drink",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.DrinkPotions=v end})
-PT:AddToggle("AutoBuy",{Title="Auto Buy",Description="Purchase potions on a timer",Default=S.AutoBuy,Callback=function(v) S.AutoBuy=v; if v then startBuy() else stopBuy() end end})
-PT:AddDropdown("BuyPotions",{Title="Potions to Buy",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.BuyPotions=v end})
-PT:AddDropdown("BuyInterval",{Title="Buy Interval",Values=INTERVAL_STRS,Default="10s",Callback=function(v)
-    for i,s in ipairs(INTERVAL_STRS) do if s==v then S.BuyInterval=INTERVAL_OPTIONS[i]; break end end
-end})
-PT:AddInput("BuyQty",{Title="Qty per Buy",Default=tostring(S.BuyQty),Numeric=true,Callback=function(v) local n=tonumber(v); if n and n>=1 then S.BuyQty=math.floor(n) end end})
-PT:AddInput("BuyMax",{Title="Max Purchases (0=inf)",Default="0",Numeric=true,Callback=function(v) local n=tonumber(v); S.BuyMax=(n and n>=0) and math.floor(n) or 0 end})
-
-MiT:AddToggle("AntiAFK",{Title="Anti-AFK",Description="Prevents idle kick",Default=S.AntiAFK,Callback=function(v) setAFK(v) end})
-MiT:AddButton({Title="Rejoin Server",Description="Reconnects to a fresh instance",Callback=function()
-    Fluent:Notify({Title="Rejoin",Content="Rejoining...",Duration=3}); task.delay(0.5,rejoin)
-end})
-MiT:AddButton({Title="Claim All Codes",Description="Attempts all "..#Codes.." known codes",Callback=function()
-    Fluent:Notify({Title="Codes",Content="Claiming "..#Codes.." codes...",Duration=3})
-    task.spawn(function() claimed=false; claim() end)
-end})
-MiT:AddButton({Title="Optimize Graphics",Description="Reduces quality, disables shadows/FX",Callback=optimizeGraphics})
-MiT:AddButton({Title="Clear Particles",Description="Disables all particle emitters and trails",Callback=function()
-    local count=0
-    for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false; count=count+1 end end
-    Fluent:Notify({Title="Particles",Content="Disabled "..count.." effects.",Duration=3})
-end})
-
-ST:AddButton({Title="Copy Discord Link",Description="discord.gg/AuQqvrJE79",Callback=function()
-    if setclipboard then pcall(setclipboard,"https://discord.gg/AuQqvrJE79") end
-    Fluent:Notify({Title="Discord",Content="Invite link copied!",Duration=3})
-end})
-ST:AddButton({Title="Open Dashboard",Description="vhxdashboard.vercel.app",Callback=function()
-    if setclipboard then pcall(setclipboard,"https://vhxdashboard.vercel.app") end
-    Fluent:Notify({Title="Dashboard",Content="URL copied! Open in browser.",Duration=4})
-end})
-
 
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreFlags({"AutoReplay"})
-SaveManager:BuildConfigSection(ST)
-InterfaceManager:BuildInterfaceSection(ST)
+
+-- Combat
+Tabs.Combat:AddParagraph({Title="Boss Warning",Content="Disable Kill Aura during boss spawn cutscenes."})
+local AuraToggle=Tabs.Combat:AddToggle("KillAura",{Title="Kill Aura",Description="Hits nearby enemies",Default=false,Callback=function(v) S.KillAura=v end})
+Tabs.Combat:AddSlider("AuraRange",{Title="Aura Range",Min=1,Max=1000,Default=100,Suffix=" studs",Callback=function(v) S.AuraRange=v end})
+Tabs.Combat:AddSlider("AttackInterval",{Title="Attack Interval",Min=80,Max=2000,Default=150,Suffix=" ms",Callback=function(v) S.AttackSpeed=v/1000 end})
+Tabs.Combat:AddDropdown("AuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default="Nearest",Callback=function(v) S.AuraMode=v end})
+Tabs.Combat:AddSlider("BurstCooldown",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Callback=function(v) S.BurstCooldown=v end})
+Tabs.Combat:AddToggle("AutoTween",{Title="Auto Tween",Description="Moves to nearest enemy",Default=false,Callback=function(v) S.AutoTween=v; if not v then stopTween() end end})
+Tabs.Combat:AddSlider("TweenSpeed",{Title="Tween Speed",Min=5,Max=100,Default=12,Suffix=" ms",Callback=function(v) S.TweenSpeed=v/100 end})
+Tabs.Combat:AddToggle("AutoReplay",{Title="Auto Replay",Default=false,Callback=function(v)
+    if v then local rem=RS:FindFirstChild("remotes"); local ev=rem and rem:FindFirstChild("gameEndVote"); if ev then pcall(ev.FireServer,ev,"replay") end end
+end})
+
+-- Raid
+Tabs.Raid:AddParagraph({Title="Note",Content="Eye of Smite is the best sword for Raid mode."})
+Tabs.Raid:AddToggle("RaidAura",{Title="Raid Aura Kill",Default=false,Callback=function(v) S.RaidAura=v end})
+Tabs.Raid:AddSlider("RaidAuraRange",{Title="Raid Aura Range",Min=10,Max=500,Default=100,Suffix=" studs",Callback=function(v) S.RaidAuraRange=v end})
+Tabs.Raid:AddDropdown("RaidAuraMode",{Title="Aura Mode",Values={"Nearest","Cone","Burst"},Default="Nearest",Callback=function(v) S.RaidAuraMode=v end})
+Tabs.Raid:AddSlider("RaidBurstCD",{Title="Burst Cooldown",Min=1,Max=30,Default=5,Suffix="s",Callback=function(v) S.RaidBurstCD=v end})
+
+-- ESP
+Tabs.ESP:AddToggle("ESPBoxes",{Title="ESP Boxes",Description="Boxes + health bars",Default=false,Callback=function(v) S.ESP=v; if not v and not S.Tracers then clearESP() end end})
+Tabs.ESP:AddToggle("Tracers",{Title="Tracers",Description="Lines to enemies",Default=false,Callback=function(v) S.Tracers=v; if not v and not S.ESP then clearESP() end end})
+Tabs.ESP:AddToggle("ShowNames",{Title="Show Names",Default=true,Callback=function(v) S.ShowNames=v end})
+Tabs.ESP:AddToggle("ShowHealth",{Title="Show Health",Default=true,Callback=function(v) S.ShowHealth=v end})
+Tabs.ESP:AddToggle("ShowDistance",{Title="Show Distance",Default=true,Callback=function(v) S.ShowDistance=v end})
+Tabs.ESP:AddColorpicker("ESPColor",{Title="ESP Color",Default=Color3.fromRGB(255,0,0),Callback=function(v) S.ESPColor=v end})
+Tabs.ESP:AddColorpicker("TracerColor",{Title="Tracer Color",Default=Color3.fromRGB(0,255,0),Callback=function(v) S.TracerColor=v end})
+Tabs.ESP:AddDropdown("TracerOrigin",{Title="Tracer Origin",Values={"Bottom","Center"},Default="Bottom",Callback=function(v) S.TracerOrigin=v end})
+
+-- Movement
+Tabs.Movement:AddSlider("WalkSpeed",{Title="Walk Speed",Min=16,Max=500,Default=50,Suffix=" sp",Callback=function(v) S.WalkSpeed=v; applySpeed() end})
+Tabs.Movement:AddSlider("JumpPower",{Title="Jump Power",Min=50,Max=500,Default=100,Callback=function(v) S.JumpPower=v; applySpeed() end})
+Tabs.Movement:AddToggle("FlyToggle",{Title="Fly",Description="WASD + Space/LCtrl",Default=false,Callback=function(v) if v then startFly() else stopFly() end end})
+Tabs.Movement:AddSlider("FlySpeed",{Title="Fly Speed",Min=10,Max=300,Default=50,Suffix=" sp",Callback=function(v) S.FlySpeed=v end})
+
+-- Potions
+Tabs.Potions:AddToggle("AutoDrink",{Title="Auto Drink",Description="Drink when HP below threshold",Default=false,Callback=function(v) S.AutoDrink=v; if v then startDrink() else stopDrink() end end})
+Tabs.Potions:AddSlider("DrinkThreshold",{Title="HP Threshold",Min=1,Max=100,Default=50,Suffix="%",Callback=function(v) S.DrinkThreshold=v end})
+Tabs.Potions:AddDropdown("DrinkPotions",{Title="Potions to Drink",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.DrinkPotions=v end})
+Tabs.Potions:AddToggle("AutoBuy",{Title="Auto Buy",Description="Buy potions on a timer",Default=false,Callback=function(v) S.AutoBuy=v; if v then startBuy() else stopBuy() end end})
+Tabs.Potions:AddDropdown("BuyPotions",{Title="Potions to Buy",Values=POTION_NAMES,Multi=true,Default={},Callback=function(v) S.BuyPotions=v end})
+Tabs.Potions:AddDropdown("BuyInterval",{Title="Buy Interval",Values=INTERVAL_STRS,Default="10s",Callback=function(v)
+    for i,s in ipairs(INTERVAL_STRS) do if s==v then S.BuyInterval=INTERVAL_OPTIONS[i]; break end end
+end})
+Tabs.Potions:AddInput("BuyQty",{Title="Qty per Buy",Default="1",Numeric=true,Callback=function(v) local n=tonumber(v); if n and n>=1 then S.BuyQty=math.floor(n) end end})
+Tabs.Potions:AddInput("BuyMax",{Title="Max (0=inf)",Default="0",Numeric=true,Callback=function(v) local n=tonumber(v); S.BuyMax=(n and n>=0) and math.floor(n) or 0 end})
+
+-- Misc
+Tabs.Misc:AddToggle("AntiAFK",{Title="Anti-AFK",Description="Prevents idle kick",Default=false,Callback=function(v) setAFK(v) end})
+Tabs.Misc:AddButton({Title="Optimize Graphics",Description="Lowers quality, disables FX",Callback=optimizeGraphics})
+Tabs.Misc:AddButton({Title="Clear Particles",Description="Disables all emitters and trails",Callback=function()
+    for _,p in ipairs(WS:GetDescendants()) do if p:IsA("ParticleEmitter") or p:IsA("Trail") then p.Enabled=false end end
+end})
+Tabs.Misc:AddButton({Title="Claim All Codes",Description="Attempts all "..#Codes.." codes",Callback=function()
+    task.spawn(function() claimed=false; claim() end)
+end})
+Tabs.Misc:AddButton({Title="Rejoin Server",Description="Reconnects to a fresh instance",Callback=function() task.delay(0.5,rejoin) end})
+Tabs.Misc:AddParagraph({Title="Device",Content=string.format("%s  |  Low-end: %s  |  FPS cap: ~%d",
+    IsMobile and "Mobile" or "PC",_isLowEnd and "Yes" or "No",_isLowEnd and 30 or 60)})
+
+-- Settings
+Tabs.Settings:AddButton({Title="Copy Discord",Description="discord.gg/AuQqvrJE79",Callback=function()
+    if setclipboard then pcall(setclipboard,"https://discord.gg/AuQqvrJE79") end
+    Fluent:Notify({Title="Discord",Content="Copied!",Duration=2})
+end})
+Tabs.Settings:AddButton({Title="Open Dashboard",Description="vhxdashboard.vercel.app",Callback=function()
+    if setclipboard then pcall(setclipboard,"https://vhxdashboard.vercel.app") end
+    Fluent:Notify({Title="Dashboard",Content="URL copied! Paste in browser.",Duration=4})
+end})
+
+SaveManager:BuildConfigSection(Tabs.Settings)
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
 
 if not IsMobile then
-    ST:AddKeybind("ToggleUI",{Title="Toggle UI",Default=Enum.KeyCode.RightControl,Callback=function() Win:SetVisible(not Win:GetVisible()) end})
-    ST:AddKeybind("KillAuraKey",{Title="Kill Aura Toggle",Default=Enum.KeyCode.L,Callback=function()
+    Tabs.Settings:AddKeybind("ToggleUI",{Title="Toggle UI",Default=Enum.KeyCode.RightControl,Callback=function() Win:SetVisible(not Win:GetVisible()) end})
+    Tabs.Settings:AddKeybind("KillAuraKey",{Title="Kill Aura Hotkey",Default=Enum.KeyCode.L,Callback=function()
         S.KillAura=not S.KillAura; AuraToggle:SetValue(S.KillAura)
-        Fluent:Notify({Title="Kill Aura",Content=S.KillAura and "Enabled" or "Disabled",Duration=2})
+        Fluent:Notify({Title="Kill Aura",Content=S.KillAura and "ON" or "OFF",Duration=2})
     end})
 end
 
 SaveManager:LoadAutoloadConfig()
 Win:SelectTab(Tabs.Combat)
 
-_genv._PB_Destroy = function()
-        stopDrink(); stopBuy(); stopTween(); stopFly()
-        if afkConn then afkConn:Disconnect(); afkConn=nil end
-        clearESP(); KillConns()
-        table.clear(_damageable); table.clear(_hpSnapshot)
-        _enemyCount=0
-        pcall(_fpsGui.Destroy,_fpsGui)
-        pcall(Win.Destroy,Win)
+-- ── Destroy handler ───────────────────────────────────────────────────────────
+_genv._PB_Destroy=function()
+    stopDrink(); stopBuy(); stopTween(); stopFly()
+    if afkConn then afkConn:Disconnect(); afkConn=nil end
+    clearESP(); KillConns()
+    table.clear(_damageable); table.clear(_hpSnapshot)
+    _enemyCount=0
+    pcall(_fpsGui.Destroy,_fpsGui)
+    pcall(Win.Destroy,Win)
 end
 
-Fluent:Notify({Title="Pixel Blade v9",Content=IsMobile and "Tap icon to toggle UI" or "L = Kill Aura  |  RCtrl = Toggle UI",Duration=5})
+Fluent:Notify({Title="Pixel Blade",Content=IsMobile and "Tap icon to toggle UI" or "L = Kill Aura  |  RCtrl = Toggle UI",Duration=5})
