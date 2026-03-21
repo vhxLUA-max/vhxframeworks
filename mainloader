@@ -308,12 +308,15 @@ end)
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
 task.spawn(function()
     -- Increment per-game execution counter (dashboard charts)
-    req("POST", "/rest/v1/rpc/increment_execution",
+    local incrRes = req("POST", "/rest/v1/rpc/increment_execution",
         HttpService:JSONEncode({
-            p_place_id = placeId,
+            p_place_id  = placeId,
             p_game_name = gameName or "",
         })
     )
+    if incrRes and incrRes.StatusCode and incrRes.StatusCode ~= 200 and incrRes.StatusCode ~= 204 then
+        warn("[vhxLUA] increment_execution failed ("..tostring(incrRes.StatusCode).."): "..(incrRes.Body or ""))
+    end
 
     -- Resolve token and first_seen from any existing row for this user
     local token, firstSeen = nil, now
@@ -325,16 +328,15 @@ task.spawn(function()
         token = WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999))
     end
 
-    -- Fetch real IP for logging (best-effort, non-blocking)
+    -- Fetch real IP (best-effort)
     local ipAddr = nil
     pcall(function()
         local ipRes = httpGet("https://api64.ipify.org?format=json")
         if ipRes and ipRes.ip then ipAddr = tostring(ipRes.ip) end
     end)
 
-    -- Upsert unique_users row — one row per (roblox_user_id, place_id)
-    -- execution_count incremented atomically server-side via RPC
-    req("POST", "/rest/v1/rpc/upsert_user_execution",
+    -- Upsert unique_users row with atomic execution_count increment
+    local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution",
         HttpService:JSONEncode({
             p_user_id    = LP.UserId,
             p_username   = LP.Name,
@@ -349,13 +351,22 @@ task.spawn(function()
         })
     )
 
+    if upsertRes and upsertRes.StatusCode then
+        if upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 then
+            warn("[vhxLUA] Logged: "..LP.Name.." ("..tostring(LP.UserId)..") | "
+                ..(gameName or tostring(placeId)).." | token:"..token)
+        else
+            warn("[vhxLUA] upsert_user_execution failed ("..tostring(upsertRes.StatusCode).."): "..(upsertRes.Body or "no body"))
+        end
+    else
+        warn("[vhxLUA] upsert_user_execution: no response (http_request may not support status codes)")
+    end
+
     if getgenv then
         getgenv()._vhxToken = token
         getgenv()._vhxFP    = fingerprint
         getgenv()._vhxHWID  = hwid
     end
-
-    warn("[vhxLUA] Logged: "..LP.Name.." ("..tostring(LP.UserId)..") in "..(gameName or tostring(placeId)))
 end)
 
 -- ── 8. Load ───────────────────────────────────────────────────────────────────
