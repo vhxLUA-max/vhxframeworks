@@ -8,7 +8,10 @@ if not LP then return end
 
 local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
-local BASE = { ["apikey"]=SUPABASE_KEY, ["Authorization"]="Bearer "..SUPABASE_KEY }
+local BASE = {
+    ["apikey"]        = SUPABASE_KEY,
+    ["Authorization"] = "Bearer "..SUPABASE_KEY,
+}
 
 local function req(method, ep, body, prefer)
     local h = {}
@@ -16,14 +19,16 @@ local function req(method, ep, body, prefer)
     if body then h["Content-Type"] = "application/json" end
     if prefer then h["Prefer"] = prefer end
     local ok, r = pcall(httpRequest, {
-        Url=SUPABASE_URL..ep, Method=method, Headers=h,
-        Body=body and (type(body)=="string" and body or HttpService:JSONEncode(body)) or nil
+        Url    = SUPABASE_URL..ep,
+        Method = method,
+        Headers = h,
+        Body   = body and (type(body)=="string" and body or HttpService:JSONEncode(body)) or nil,
     })
     return ok and r or nil
 end
 
 local function decode(r)
-    if not r or not r.Body then return nil end
+    if not r or not r.Body or r.Body == "" then return nil end
     local ok, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
     return ok and d or nil
 end
@@ -36,43 +41,71 @@ local function httpGet(url)
 end
 
 local GAMES = {
-    [18172550962]="Pixel Blade",[18172553902]="Pixel Blade",[133884972346775]="Pixel Blade",
-    [138013005633222]="Loot Hero",[77439980360504]="Loot Hero",
-    [119987266683883]="Survive Lava",[136801880565837]="Flick",[123974602339071]="UNC Tester",
+    [18172550962]     = "Pixel Blade",
+    [18172553902]     = "Pixel Blade",
+    [133884972346775] = "Pixel Blade",
+    [138013005633222] = "Loot Hero",
+    [77439980360504]  = "Loot Hero",
+    [119987266683883] = "Survive Lava",
+    [136801880565837] = "Flick",
+    [123974602339071] = "UNC Tester",
 }
-local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX","BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST","NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
+local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX",
+               "BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST",
+               "NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
 
 local placeId  = game.PlaceId
 local gameName = GAMES[placeId]
 local now      = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
+-- ── Notification GUI ──────────────────────────────────────────────────────────
 local function showGUI(title, msg, color)
     pcall(function()
+        local CoreGui = game:GetService("CoreGui")
+        local old = CoreGui:FindFirstChild("VHX_NOTICE")
+        if old then old:Destroy() end
         local sg = Instance.new("ScreenGui")
-        sg.Name = "VHX_NOTICE"; sg.ResetOnSpawn = false; sg.DisplayOrder = 9999
-        sg.Parent = game:GetService("CoreGui")
+        sg.Name = "VHX_NOTICE"; sg.ResetOnSpawn = false
+        sg.DisplayOrder = 9999; sg.IgnoreGuiInset = true
+        sg.Parent = CoreGui
         local frame = Instance.new("Frame")
-        frame.Size = UDim2.new(0,440,0,140); frame.Position = UDim2.new(0.5,-220,0.5,-70)
-        frame.BackgroundColor3 = Color3.fromRGB(10,10,15); frame.BorderSizePixel = 0; frame.Parent = sg
+        frame.Size = UDim2.new(0,460,0,130)
+        frame.Position = UDim2.new(0.5,-230,0.5,-65)
+        frame.BackgroundColor3 = Color3.fromRGB(10,10,15)
+        frame.BorderSizePixel = 0; frame.Active = true; frame.Parent = sg
         Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
         local stroke = Instance.new("UIStroke", frame)
         stroke.Color = color; stroke.Thickness = 2
-        local t = Instance.new("TextLabel")
-        t.Size = UDim2.new(1,-20,0,36); t.Position = UDim2.new(0,10,0,10)
+        -- accent bar
+        local bar = Instance.new("Frame", frame)
+        bar.Size = UDim2.new(1,0,0,3); bar.BackgroundColor3 = color
+        bar.BorderSizePixel = 0
+        Instance.new("UICorner", bar).CornerRadius = UDim.new(0,3)
+        local t = Instance.new("TextLabel", frame)
+        t.Size = UDim2.new(1,-44,0,36); t.Position = UDim2.new(0,12,0,8)
         t.BackgroundTransparency = 1; t.Text = title
         t.TextColor3 = color; t.Font = Enum.Font.GothamBold
-        t.TextSize = 15; t.TextXAlignment = Enum.TextXAlignment.Left; t.Parent = frame
-        local m = Instance.new("TextLabel")
-        m.Size = UDim2.new(1,-20,0,70); m.Position = UDim2.new(0,10,0,52)
+        t.TextSize = 15; t.TextXAlignment = Enum.TextXAlignment.Left
+        local m = Instance.new("TextLabel", frame)
+        m.Size = UDim2.new(1,-24,0,70); m.Position = UDim2.new(0,12,0,48)
         m.BackgroundTransparency = 1; m.Text = msg
         m.TextColor3 = Color3.fromRGB(180,180,180); m.Font = Enum.Font.Gotham
         m.TextSize = 12; m.TextWrapped = true
-        m.TextXAlignment = Enum.TextXAlignment.Left; m.TextYAlignment = Enum.TextYAlignment.Top
-        m.Parent = frame
+        m.TextXAlignment = Enum.TextXAlignment.Left
+        m.TextYAlignment = Enum.TextYAlignment.Top
+        local close = Instance.new("TextButton", frame)
+        close.Size = UDim2.new(0,28,0,28); close.Position = UDim2.new(1,-36,0,4)
+        close.BackgroundColor3 = Color3.fromRGB(40,40,50)
+        close.Text = "✕"; close.Font = Enum.Font.GothamBold
+        close.TextSize = 12; close.TextColor3 = Color3.fromRGB(180,180,180)
+        close.BorderSizePixel = 0
+        Instance.new("UICorner", close).CornerRadius = UDim.new(0,6)
+        close.MouseButton1Click:Connect(function() sg:Destroy() end)
+        task.delay(12, function() if sg and sg.Parent then sg:Destroy() end end)
     end)
 end
 
--- ── Fingerprint ───────────────────────────────────────────────────────────────
+-- ── Fingerprint + HWID ────────────────────────────────────────────────────────
 local function genFingerprint()
     local executor = (identifyexecutor and identifyexecutor()) or
                      (getexecutorname and getexecutorname()) or "unknown"
@@ -82,7 +115,6 @@ local function genFingerprint()
     return string.format("FP-%x-%d", hash, LP.UserId % 99999)
 end
 
--- ── HWID ──────────────────────────────────────────────────────────────────────
 local function genHWID()
     local executor = (identifyexecutor and identifyexecutor()) or
                      (getexecutorname and getexecutorname()) or "unk"
@@ -95,162 +127,186 @@ end
 local fingerprint = genFingerprint()
 local hwid        = genHWID()
 
--- ── 1. Maintenance check (live countdown) ────────────────────────────────────
+-- ── 1. Maintenance check ──────────────────────────────────────────────────────
 if gameName then
-    local mRes = decode(req("GET", ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg,end_timestamp"):format(
+    local mRes = decode(req("GET",
+        ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg,end_timestamp"):format(
         HttpService:UrlEncode(gameName))))
     if mRes and #mRes > 0 and mRes[1].maintenance then
         local msg   = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
         local endTs = mRes[1].end_timestamp
 
-        -- Get remaining seconds at fetch time using UTC from Supabase
-        -- We fetch the server's current UTC time to avoid any local clock/timezone issues
         local remainingAtFetch = -1
         if endTs then
             pcall(function()
-                local nowRes = decode(req("GET", "/rest/v1/rpc/now"))
+                local nowRes   = decode(req("GET", "/rest/v1/rpc/now"))
                 local serverNow = nowRes or os.date("!%Y-%m-%dT%H:%M:%SZ")
+                local function isLeap(yr) return (yr%4==0 and yr%100~=0) or yr%400==0 end
+                local function daysSinceEpoch(yr,mo,dy)
+                    local days = 0
+                    for y2=1970,yr-1 do days=days+(isLeap(y2) and 366 or 365) end
+                    local md={31,28,31,30,31,30,31,31,30,31,30,31}
+                    if isLeap(yr) then md[2]=29 end
+                    for m2=1,mo-1 do days=days+md[m2] end
+                    return days+dy-1
+                end
                 local function parseISO(s)
                     local y,mo,d,hh,mm,ss = s:match("(%d+)-(%d+)-(%d+)T(%d+):(%d+):(%d+)")
                     if not y then return nil end
-                    -- Convert to seconds since epoch using UTC components
-                    -- Using a reference: days since 1970-01-01
-                    local function isLeap(yr) return (yr%4==0 and yr%100~=0) or yr%400==0 end
-                    local DAYS = {31,28,31,30,31,30,31,31,30,31,30,31}
-                    local function daysSinceEpoch(yr,mo2,dy)
-                        local days = 0
-                        for yr2=1970,yr-1 do days=days+(isLeap(yr2) and 366 or 365) end
-                        local mdays = {31,28,31,30,31,30,31,31,30,31,30,31}
-                        if isLeap(yr) then mdays[2]=29 end
-                        for m2=1,mo2-1 do days=days+mdays[m2] end
-                        return days+dy-1
-                    end
-                    local yn,mon,dn,hhn,mmn,ssn = tonumber(y),tonumber(mo),tonumber(d),tonumber(hh),tonumber(mm),tonumber(ss)
-                    return daysSinceEpoch(yn,mon,dn)*86400 + hhn*3600 + mmn*60 + ssn
+                    return daysSinceEpoch(tonumber(y),tonumber(mo),tonumber(d))*86400
+                           + tonumber(hh)*3600 + tonumber(mm)*60 + tonumber(ss)
                 end
-                local endSecs  = parseISO(endTs)
-                local nowSecs  = parseISO(tostring(serverNow):sub(1,19))
+                local endSecs = parseISO(endTs)
+                local nowSecs = parseISO(tostring(serverNow):sub(1,19))
                 if endSecs and nowSecs then
                     remainingAtFetch = math.max(0, endSecs - nowSecs)
                 end
             end)
         end
 
-        -- Build UI
+        local CoreGui = game:GetService("CoreGui")
         local sg = Instance.new("ScreenGui")
-        sg.Name="VHX_MAINT"; sg.ResetOnSpawn=false; sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
+        sg.Name="VHX_MAINT"; sg.ResetOnSpawn=false
+        sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
 
         local frame = Instance.new("Frame")
-        frame.Size=UDim2.new(0,440,0,148); frame.Position=UDim2.new(0.5,-220,0.5,-74)
-        frame.BackgroundColor3=Color3.fromRGB(10,10,15); frame.BorderSizePixel=0; frame.Active=true; frame.Parent=sg
+        frame.Size=UDim2.new(0,440,0,148)
+        frame.Position=UDim2.new(0.5,-220,0.5,-74)
+        frame.BackgroundColor3=Color3.fromRGB(10,10,15)
+        frame.BorderSizePixel=0; frame.Active=true; frame.Parent=sg
         Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
-        local stroke=Instance.new("UIStroke",frame); stroke.Color=Color3.fromRGB(250,180,0); stroke.Thickness=2
+        local stroke=Instance.new("UIStroke",frame)
+        stroke.Color=Color3.fromRGB(250,180,0); stroke.Thickness=2
 
-        local titleLbl=Instance.new("TextLabel")
+        local titleLbl=Instance.new("TextLabel",frame)
         titleLbl.Size=UDim2.new(1,-44,0,36); titleLbl.Position=UDim2.new(0,12,0,0)
-        titleLbl.BackgroundTransparency=1; titleLbl.Text=gameName.." - Maintenance"
+        titleLbl.BackgroundTransparency=1
+        titleLbl.Text=gameName.." — Maintenance"
         titleLbl.Font=Enum.Font.GothamBold; titleLbl.TextSize=15
-        titleLbl.TextColor3=Color3.fromRGB(250,180,0); titleLbl.TextXAlignment=Enum.TextXAlignment.Left; titleLbl.Parent=frame
+        titleLbl.TextColor3=Color3.fromRGB(250,180,0)
+        titleLbl.TextXAlignment=Enum.TextXAlignment.Left
 
-        local msgLbl=Instance.new("TextLabel")
+        local msgLbl=Instance.new("TextLabel",frame)
         msgLbl.Size=UDim2.new(1,-24,0,46); msgLbl.Position=UDim2.new(0,12,0,38)
-        msgLbl.BackgroundTransparency=1; msgLbl.Text=msg; msgLbl.Font=Enum.Font.Gotham; msgLbl.TextSize=12
+        msgLbl.BackgroundTransparency=1; msgLbl.Text=msg
+        msgLbl.Font=Enum.Font.Gotham; msgLbl.TextSize=12
         msgLbl.TextWrapped=true; msgLbl.TextColor3=Color3.fromRGB(180,180,180)
-        msgLbl.TextXAlignment=Enum.TextXAlignment.Left; msgLbl.TextYAlignment=Enum.TextYAlignment.Top; msgLbl.Parent=frame
+        msgLbl.TextXAlignment=Enum.TextXAlignment.Left
+        msgLbl.TextYAlignment=Enum.TextYAlignment.Top
 
-        local cdLbl=Instance.new("TextLabel")
+        local cdLbl=Instance.new("TextLabel",frame)
         cdLbl.Size=UDim2.new(1,-24,0,30); cdLbl.Position=UDim2.new(0,12,0,88)
-        cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=18
-        cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left
-        cdLbl.Text=endTs and "Ends in: --:--:--" or "Duration unknown"; cdLbl.Parent=frame
+        cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold
+        cdLbl.TextSize=18; cdLbl.TextColor3=Color3.fromRGB(255,200,50)
+        cdLbl.TextXAlignment=Enum.TextXAlignment.Left
+        cdLbl.Text=endTs and "Ends in: --:--:--" or "No timer set"
 
-        local closeBtn=Instance.new("TextButton")
+        local closeBtn=Instance.new("TextButton",frame)
         closeBtn.Size=UDim2.new(0,28,0,28); closeBtn.Position=UDim2.new(1,-36,0,4)
-        closeBtn.BackgroundColor3=Color3.fromRGB(40,40,50); closeBtn.Text="X"
+        closeBtn.BackgroundColor3=Color3.fromRGB(40,40,50); closeBtn.Text="✕"
         closeBtn.Font=Enum.Font.GothamBold; closeBtn.TextSize=12
-        closeBtn.TextColor3=Color3.fromRGB(200,200,200); closeBtn.BorderSizePixel=0; closeBtn.Parent=frame
+        closeBtn.TextColor3=Color3.fromRGB(200,200,200); closeBtn.BorderSizePixel=0
         Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,6)
         closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
         closeBtn.TouchTap:Connect(function() sg:Destroy() end)
 
-        -- Smooth drag
         local UIS = game:GetService("UserInputService")
         local dragging,dragStart,frameStart=false,nil,nil
         frame.InputBegan:Connect(function(i)
-            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then
+            if i.UserInputType==Enum.UserInputType.MouseButton1
+            or i.UserInputType==Enum.UserInputType.Touch then
                 dragging=true; dragStart=i.Position; frameStart=frame.Position
             end
         end)
         frame.InputEnded:Connect(function(i)
-            if i.UserInputType==Enum.UserInputType.MouseButton1 or i.UserInputType==Enum.UserInputType.Touch then dragging=false end
+            if i.UserInputType==Enum.UserInputType.MouseButton1
+            or i.UserInputType==Enum.UserInputType.Touch then dragging=false end
         end)
+        local cam = workspace.CurrentCamera
         local dragConn=UIS.InputChanged:Connect(function(i)
             if not dragging then return end
-            if i.UserInputType~=Enum.UserInputType.MouseMovement and i.UserInputType~=Enum.UserInputType.Touch then return end
-            local d=i.Position-dragStart; local vp=Cam.ViewportSize
-            frame.Position=UDim2.new(0,math.clamp(frameStart.X.Offset+d.X,0,vp.X-440),0,math.clamp(frameStart.Y.Offset+d.Y,0,vp.Y-148))
+            if i.UserInputType~=Enum.UserInputType.MouseMovement
+            and i.UserInputType~=Enum.UserInputType.Touch then return end
+            local d=i.Position-dragStart
+            local vp=cam.ViewportSize
+            frame.Position=UDim2.new(0,
+                math.clamp(frameStart.X.Offset+d.X,0,vp.X-440),0,
+                math.clamp(frameStart.Y.Offset+d.Y,0,vp.Y-148))
         end)
         sg.Destroying:Connect(function() dragConn:Disconnect() end)
 
-        -- Live countdown: count down from remainingAtFetch using tick() delta — no os.time() needed
-        task.spawn(function()
-            if remainingAtFetch < 0 then return end -- no timer set
-            local startTick = tick()
-            local fired = false
-            while sg and sg.Parent do
-                local rem = math.max(0, remainingAtFetch - math.floor(tick() - startTick))
-                if cdLbl and cdLbl.Parent then
-                    cdLbl.Text = string.format("Ends in: %02d:%02d:%02d", math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
+        if remainingAtFetch >= 0 then
+            task.spawn(function()
+                local startTick = tick()
+                local fired = false
+                while sg and sg.Parent do
+                    local rem = math.max(0, remainingAtFetch - math.floor(tick()-startTick))
+                    if cdLbl and cdLbl.Parent then
+                        cdLbl.Text = string.format("Ends in: %02d:%02d:%02d",
+                            math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
+                    end
+                    if rem <= 0 and not fired then
+                        fired = true
+                        pcall(function() sg:Destroy() end)
+                        return
+                    end
+                    task.wait(1)
                 end
-                if rem <= 0 and not fired then
-                    fired = true
-                    pcall(sg.Destroy, sg)
-                    return
-                end
-                task.wait(1)
-            end
-        end)
+            end)
+        end
 
-        warn("[vhxLUA] Maintenance: "..gameName)
+        warn("[vhxLUA] Maintenance active: "..gameName)
         return
     end
 end
 
--- ── 2. User ban check ─────────────────────────────────────────────────────────
-local banData = decode(req("GET", ("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId)))
+-- ── 2. User ban ───────────────────────────────────────────────────────────────
+local banData = decode(req("GET",
+    ("/rest/v1/banned_users?roblox_user_id=eq.%d&select=reason"):format(LP.UserId)))
 if banData and #banData > 0 then
-    showGUI("🚫  You are banned from vhxLUA", "Reason: "..(banData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
+    showGUI("🚫  Banned from vhxLUA",
+        "Reason: "..(banData[1].reason or "No reason provided."),
+        Color3.fromRGB(220,50,50))
     return
 end
 
--- ── 3. Fingerprint ban check ──────────────────────────────────────────────────
-local fpData = decode(req("GET", ("/rest/v1/fingerprint_bans?fingerprint=eq.%s&select=reason"):format(fingerprint)))
+-- ── 3. Fingerprint ban ────────────────────────────────────────────────────────
+local fpData = decode(req("GET",
+    ("/rest/v1/fingerprint_bans?fingerprint=eq.%s&select=reason"):format(fingerprint)))
 if fpData and #fpData > 0 then
-    showGUI("🚫  You are banned from vhxLUA", "Reason: "..(fpData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
+    showGUI("🚫  Banned from vhxLUA",
+        "Reason: "..(fpData[1].reason or "No reason provided."),
+        Color3.fromRGB(220,50,50))
     return
 end
 
--- ── 4. HWID ban check ────────────────────────────────────────────────────────
-local hwidData = decode(req("GET", ("/rest/v1/hwid_bans?hwid=eq.%s&select=reason"):format(hwid)))
+-- ── 4. HWID ban ───────────────────────────────────────────────────────────────
+local hwidData = decode(req("GET",
+    ("/rest/v1/hwid_bans?hwid=eq.%s&select=reason"):format(hwid)))
 if hwidData and #hwidData > 0 then
-    showGUI("🔒  Device Banned", "Your device has been banned from vhxLUA.\nReason: "..(hwidData[1].reason or "No reason provided."), Color3.fromRGB(220,50,50))
-    warn("[vhxLUA] HWID banned")
+    showGUI("🔒  Device Banned",
+        "Your device has been banned from vhxLUA.\nReason: "..(hwidData[1].reason or "No reason provided."),
+        Color3.fromRGB(220,50,50))
     return
 end
 
--- ── 5. HWID lock ─────────────────────────────────────────────────────────────
--- Fetch existing row — no place_id filter so we get token/firstSeen regardless of game
-local existingUser = decode(req("GET", ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,token,first_seen,place_id&order=first_seen.asc&limit=1"):format(LP.UserId)))
-if existingUser and #existingUser > 0 then
-    local stored = existingUser[1].hwid
+-- ── 5. HWID lock (fetch existing user row — any game) ─────────────────────────
+local existingRows = decode(req("GET",
+    ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,token,first_seen&order=first_seen.asc&limit=1"):format(LP.UserId)))
+local existingUser = (existingRows and #existingRows > 0) and existingRows[1] or nil
+
+if existingUser then
+    local stored = existingUser.hwid
     if stored and stored ~= "" and stored ~= hwid then
-        showGUI("🔒  Device Not Recognized", "This account is locked to a different device.\nContact support if this is an error.", Color3.fromRGB(220,50,50))
-        warn("[vhxLUA] HWID mismatch")
+        showGUI("🔒  Device Not Recognized",
+            "This account is locked to a different device.\nContact support if this is an error.",
+            Color3.fromRGB(220,50,50))
+        warn("[vhxLUA] HWID mismatch for "..LP.Name)
         return
     end
 end
 
--- ── 6. VPN/Proxy detection (multi-source) ────────────────────────────────────
+-- ── 6. VPN / Proxy detection ──────────────────────────────────────────────────
 task.spawn(function()
     local vpnDetected = false
     local vpnProvider = ""
@@ -258,110 +314,115 @@ task.spawn(function()
 
     local sources = {
         function()
-            local d = httpGet("http://ip-api.com/json/?fields=proxy,hosting,vpn,isp,country,countryCode")
+            local d = httpGet("http://ip-api.com/json/?fields=proxy,hosting,vpn,isp,country")
             if d then
                 vpnCountry  = d.country or ""
                 vpnProvider = d.isp or ""
                 return d.proxy or d.hosting or d.vpn
             end
-            return false
         end,
         function()
             local d = httpGet("https://ipapi.co/json/")
             if d then
                 vpnProvider = d.org or vpnProvider
                 vpnCountry  = d.country_name or vpnCountry
-                return d.org and (
-                    string.find(string.lower(d.org), "vpn") ~= nil or
-                    string.find(string.lower(d.org), "proxy") ~= nil or
-                    string.find(string.lower(d.org), "hosting") ~= nil or
-                    string.find(string.lower(d.org), "datacenter") ~= nil or
-                    string.find(string.lower(d.org), "cloud") ~= nil or
-                    string.find(string.lower(d.org), "server") ~= nil or
-                    string.find(string.lower(d.org), "tunnel") ~= nil
-                )
+                local org = string.lower(d.org or "")
+                return org:find("vpn") or org:find("proxy") or org:find("hosting")
+                    or org:find("datacenter") or org:find("cloud") or org:find("tunnel")
             end
-            return false
         end,
     }
 
     for _, check in ipairs(sources) do
         local ok, result = pcall(check)
-        if ok and result then
-            vpnDetected = true
-            break
-        end
+        if ok and result then vpnDetected = true break end
     end
 
     if vpnDetected then
         req("POST", "/rest/v1/vpn_flags", {
             roblox_user_id = LP.UserId,
-            username = LP.Name,
-            provider = vpnProvider,
-            country  = vpnCountry,
-            flagged  = true,
+            username       = LP.Name,
+            provider       = vpnProvider,
+            country        = vpnCountry,
+            flagged        = true,
         }, "return=minimal")
-        warn("[vhxLUA] VPN/Proxy detected — flagged: "..vpnProvider.." ("..vpnCountry..")")
+        warn("[vhxLUA] VPN flagged: "..LP.Name.." via "..vpnProvider)
     end
 end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
 task.spawn(function()
-    -- Increment per-game execution counter (dashboard charts)
-    local incrRes = req("POST", "/rest/v1/rpc/increment_execution",
-        HttpService:JSONEncode({
-            p_place_id  = placeId,
-            p_game_name = gameName or "",
-        })
-    )
-    if incrRes and incrRes.StatusCode and incrRes.StatusCode ~= 200 and incrRes.StatusCode ~= 204 then
-        warn("[vhxLUA] increment_execution failed ("..tostring(incrRes.StatusCode).."): "..(incrRes.Body or ""))
-    end
+    local token     = (existingUser and existingUser.token) or
+                      (WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999)))
+    local firstSeen = (existingUser and existingUser.first_seen) or now
 
-    -- Resolve token and first_seen from any existing row for this user
-    local token, firstSeen = nil, now
-    if existingUser and #existingUser > 0 then
-        token     = existingUser[1].token
-        firstSeen = existingUser[1].first_seen or now
-    end
-    if not token then
-        token = WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999))
-    end
-
-    -- Fetch real IP (best-effort)
+    -- Fetch IP best-effort
     local ipAddr = nil
     pcall(function()
-        local ipRes = httpGet("https://api64.ipify.org?format=json")
-        if ipRes and ipRes.ip then ipAddr = tostring(ipRes.ip) end
+        local d = httpGet("https://api64.ipify.org?format=json")
+        if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- Upsert unique_users row with atomic execution_count increment
-    local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution",
-        HttpService:JSONEncode({
-            p_user_id    = LP.UserId,
-            p_username   = LP.Name,
-            p_place_id   = placeId,
-            p_game_name  = gameName or "",
-            p_first_seen = firstSeen,
-            p_last_seen  = now,
-            p_token      = token,
-            p_fingerprint= fingerprint,
-            p_hwid       = hwid,
-            p_ip         = ipAddr,
-        })
+    -- ── A. Upsert unique_users ─────────────────────────────────────────────
+    -- Uses PostgREST native upsert on (roblox_user_id, place_id) unique key.
+    -- execution_count is incremented by the DB trigger (see SQL setup).
+    -- We pass execution_count=1 on INSERT; on conflict the trigger handles increment.
+    local upsertBody = HttpService:JSONEncode({
+        roblox_user_id  = LP.UserId,
+        username        = LP.Name,
+        place_id        = placeId,
+        game_name       = gameName or "",
+        first_seen      = firstSeen,
+        last_seen       = now,
+        token           = token,
+        fingerprint     = fingerprint,
+        hwid            = hwid,
+        ip_address      = ipAddr,
+        execution_count = 1,
+    })
+
+    local upsertRes = req("POST",
+        "/rest/v1/unique_users",
+        upsertBody,
+        "resolution=merge-duplicates,return=minimal"
     )
 
-    if upsertRes and upsertRes.StatusCode then
-        if upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 then
-            warn("[vhxLUA] Logged: "..LP.Name.." ("..tostring(LP.UserId)..") | "
-                ..(gameName or tostring(placeId)).." | token:"..token)
-        else
-            warn("[vhxLUA] upsert_user_execution failed ("..tostring(upsertRes.StatusCode).."): "..(upsertRes.Body or "no body"))
-        end
+    local upsertOk = upsertRes and (
+        upsertRes.StatusCode == 200 or
+        upsertRes.StatusCode == 201 or
+        upsertRes.StatusCode == 204 or
+        upsertRes.StatusCode == nil   -- some executors don't expose status code
+    )
+
+    if upsertOk then
+        warn("[vhxLUA] ✓ Logged: "..LP.Name.." | "..(gameName or tostring(placeId)).." | "..token)
     else
-        warn("[vhxLUA] upsert_user_execution: no response (http_request may not support status codes)")
+        local code = upsertRes and tostring(upsertRes.StatusCode) or "no response"
+        local body = upsertRes and (upsertRes.Body or "") or ""
+        warn("[vhxLUA] ✗ unique_users upsert failed ("..code.."): "..body)
     end
 
+    -- ── B. Upsert game_executions ──────────────────────────────────────────
+    local today = os.date("!%Y-%m-%d")
+    local execRes = req("POST",
+        "/rest/v1/game_executions",
+        HttpService:JSONEncode({
+            place_id         = placeId,
+            game_name        = gameName or "",
+            count            = 1,
+            daily_count      = 1,
+            daily_reset_at   = now,
+            last_executed_at = now,
+        }),
+        "resolution=merge-duplicates,return=minimal"
+    )
+
+    if execRes and execRes.StatusCode and execRes.StatusCode ~= 200
+    and execRes.StatusCode ~= 201 and execRes.StatusCode ~= 204 then
+        warn("[vhxLUA] ✗ game_executions failed ("..tostring(execRes.StatusCode).."): "..(execRes.Body or ""))
+    end
+
+    -- ── C. Store in env ────────────────────────────────────────────────────
     if getgenv then
         getgenv()._vhxToken = token
         getgenv()._vhxFP    = fingerprint
@@ -369,8 +430,10 @@ task.spawn(function()
     end
 end)
 
--- ── 8. Load ───────────────────────────────────────────────────────────────────
-pcall(function() loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))() end)
+-- ── 8. Load scripts ───────────────────────────────────────────────────────────
+pcall(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/loader"))()
+end)
 
 local GameRegistry = {
     [18172550962]     = "https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/pixelblade.lua",
@@ -384,5 +447,6 @@ local GameRegistry = {
 }
 
 local url = GameRegistry[placeId]
-if not url then return end
-pcall(function() loadstring(game:HttpGet(url))() end)
+if url then
+    pcall(function() loadstring(game:HttpGet(url))() end)
+end
