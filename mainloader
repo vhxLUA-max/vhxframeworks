@@ -308,32 +308,31 @@ end)
 task.spawn(function()
     req("POST", "/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
 
-    local token, firstSeen, currentCount = nil, now, 0
+    local token, firstSeen = nil, now
 
     if existingUser and #existingUser > 0 then
-        token        = existingUser[1].token
-        firstSeen    = existingUser[1].first_seen or now
-        currentCount = existingUser[1].execution_count or 0
+        token     = existingUser[1].token
+        firstSeen = existingUser[1].first_seen or now
     end
 
     if not token then
         token = WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999))
     end
 
-    if currentCount > 0 then
-        req("PATCH",
-            ("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d"):format(LP.UserId, placeId),
-            { username=LP.Name, last_seen=now, execution_count=currentCount+1, token=token, fingerprint=fingerprint, hwid=hwid },
-            "return=minimal"
-        )
-    else
-        req("POST",
-            "/rest/v1/unique_users?on_conflict=roblox_user_id,place_id",
-            { roblox_user_id=LP.UserId, username=LP.Name, place_id=placeId, game_name=gameName,
-              first_seen=firstSeen, last_seen=now, execution_count=1, token=token, fingerprint=fingerprint, hwid=hwid },
-            "resolution=ignore-duplicates,return=minimal"
-        )
-    end
+    -- Use RPC to atomically increment execution_count — prevents double-counting
+    req("POST", "/rest/v1/rpc/upsert_user_execution",
+        HttpService:JSONEncode({
+            p_user_id    = LP.UserId,
+            p_username   = LP.Name,
+            p_place_id   = placeId,
+            p_game_name  = gameName or "",
+            p_first_seen = firstSeen,
+            p_last_seen  = now,
+            p_token      = token,
+            p_fingerprint= fingerprint,
+            p_hwid       = hwid,
+        })
+    )
 
     if getgenv then
         getgenv()._vhxToken = token
