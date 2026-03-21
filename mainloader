@@ -95,13 +95,14 @@ end
 local fingerprint = genFingerprint()
 local hwid        = genHWID()
 
--- ── 1. Maintenance check (live countdown) ────────────────────────────────────
+-- ── 1. Maintenance check (live countdown + redirect) ─────────────────────────
 if gameName then
-    local mRes = decode(req("GET", ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg,end_timestamp"):format(
+    local mRes = decode(req("GET", ("/rest/v1/game_status?game_name=eq.%s&select=maintenance,maintenance_msg,end_timestamp,redirect_url"):format(
         HttpService:UrlEncode(gameName))))
     if mRes and #mRes > 0 and mRes[1].maintenance then
-        local msg   = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
-        local endTs = mRes[1].end_timestamp
+        local msg         = mRes[1].maintenance_msg or "This script is under maintenance. Check back soon."
+        local endTs       = mRes[1].end_timestamp
+        local redirectUrl = mRes[1].redirect_url or "https://vhxdashboard.vercel.app/"
 
         -- Get remaining seconds at fetch time using UTC from Supabase
         -- We fetch the server's current UTC time to avoid any local clock/timezone issues
@@ -159,10 +160,21 @@ if gameName then
         msgLbl.TextXAlignment=Enum.TextXAlignment.Left; msgLbl.TextYAlignment=Enum.TextYAlignment.Top; msgLbl.Parent=frame
 
         local cdLbl=Instance.new("TextLabel")
-        cdLbl.Size=UDim2.new(1,-24,0,30); cdLbl.Position=UDim2.new(0,12,0,88)
-        cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=18
+        cdLbl.Size=UDim2.new(1,-24,0,22); cdLbl.Position=UDim2.new(0,12,0,84)
+        cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold; cdLbl.TextSize=13
         cdLbl.TextColor3=Color3.fromRGB(255,200,50); cdLbl.TextXAlignment=Enum.TextXAlignment.Left
         cdLbl.Text=endTs and "Ends in: --:--:--" or "Duration unknown"; cdLbl.Parent=frame
+
+        -- Resize frame to fit visit button
+        frame.Size=UDim2.new(0,440,0,152)
+        frame.Position=UDim2.new(0.5,-220,0.5,-76)
+
+        -- Redirect countdown label (3s auto-copy)
+        local rdLbl=Instance.new("TextLabel")
+        rdLbl.Size=UDim2.new(0,200,0,22); rdLbl.Position=UDim2.new(0,200,0,110)
+        rdLbl.BackgroundTransparency=1; rdLbl.Font=Enum.Font.Gotham; rdLbl.TextSize=11
+        rdLbl.TextColor3=Color3.fromRGB(100,100,120); rdLbl.TextXAlignment=Enum.TextXAlignment.Right
+        rdLbl.Text="Auto-copying link in 3..."; rdLbl.Parent=frame
 
         local closeBtn=Instance.new("TextButton")
         closeBtn.Size=UDim2.new(0,28,0,28); closeBtn.Position=UDim2.new(1,-36,0,4)
@@ -172,6 +184,24 @@ if gameName then
         Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,6)
         closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
         closeBtn.TouchTap:Connect(function() sg:Destroy() end)
+
+        -- "Visit Dashboard" button
+        local visitBtn=Instance.new("TextButton")
+        visitBtn.Size=UDim2.new(0,180,0,28); visitBtn.Position=UDim2.new(0,12,0,110)
+        visitBtn.BackgroundColor3=Color3.fromRGB(30,30,50); visitBtn.Text="🔗 Visit Dashboard"
+        visitBtn.Font=Enum.Font.GothamBold; visitBtn.TextSize=11
+        visitBtn.TextColor3=Color3.fromRGB(140,160,255); visitBtn.BorderSizePixel=0; visitBtn.Parent=frame
+        Instance.new("UICorner",visitBtn).CornerRadius=UDim.new(0,6)
+        visitBtn.MouseButton1Click:Connect(function()
+            if setclipboard then setclipboard(redirectUrl) end
+            cdLbl.Text="URL copied to clipboard!"
+            cdLbl.TextColor3=Color3.fromRGB(100,220,130)
+        end)
+        visitBtn.TouchTap:Connect(function()
+            if setclipboard then setclipboard(redirectUrl) end
+            cdLbl.Text="URL copied to clipboard!"
+            cdLbl.TextColor3=Color3.fromRGB(100,220,130)
+        end)
 
         -- Smooth drag
         local UIS = game:GetService("UserInputService")
@@ -192,22 +222,43 @@ if gameName then
         end)
         sg.Destroying:Connect(function() dragConn:Disconnect() end)
 
-        -- Live countdown: count down from remainingAtFetch using tick() delta — no os.time() needed
+        -- Live countdown: count down from remainingAtFetch using tick() delta
         task.spawn(function()
-            if remainingAtFetch < 0 then return end -- no timer set
-            local startTick = tick()
-            local fired = false
-            while sg and sg.Parent do
-                local rem = math.max(0, remainingAtFetch - math.floor(tick() - startTick))
-                if cdLbl and cdLbl.Parent then
-                    cdLbl.Text = string.format("Ends in: %02d:%02d:%02d", math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
+            if remainingAtFetch >= 0 then
+                local startTick = tick()
+                local fired = false
+                while sg and sg.Parent do
+                    local rem = math.max(0, remainingAtFetch - math.floor(tick() - startTick))
+                    if cdLbl and cdLbl.Parent then
+                        cdLbl.Text = string.format("Ends in: %02d:%02d:%02d", math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
+                    end
+                    if rem <= 0 and not fired then
+                        fired = true
+                        pcall(sg.Destroy, sg)
+                        return
+                    end
+                    task.wait(1)
                 end
-                if rem <= 0 and not fired then
-                    fired = true
-                    pcall(sg.Destroy, sg)
-                    return
+            end
+        end)
+
+        -- Auto-copy dashboard URL after 3 seconds with visible countdown
+        task.spawn(function()
+            for i = 3, 1, -1 do
+                if rdLbl and rdLbl.Parent then
+                    rdLbl.Text = "Auto-copying link in "..i.."..."
                 end
                 task.wait(1)
+            end
+            if setclipboard then setclipboard(redirectUrl) end
+            if rdLbl and rdLbl.Parent then
+                rdLbl.Text = "✓ Dashboard URL copied!"
+                rdLbl.TextColor3 = Color3.fromRGB(100, 220, 130)
+            end
+            if cdLbl and cdLbl.Parent then
+                cdLbl.Text = "Paste the URL in your browser"
+                cdLbl.TextColor3 = Color3.fromRGB(100, 220, 130)
+                cdLbl.TextSize = 12
             end
         end)
 
