@@ -239,7 +239,8 @@ if hwidData and #hwidData > 0 then
 end
 
 -- ── 5. HWID lock ─────────────────────────────────────────────────────────────
-local existingUser = decode(req("GET", ("/rest/v1/unique_users?roblox_user_id=eq.%d&place_id=eq.%d&select=hwid,token,first_seen,execution_count"):format(LP.UserId, placeId)))
+-- Fetch existing row — no place_id filter so we get token/firstSeen regardless of game
+local existingUser = decode(req("GET", ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,token,first_seen,place_id&order=first_seen.asc&limit=1"):format(LP.UserId)))
 if existingUser and #existingUser > 0 then
     local stored = existingUser[1].hwid
     if stored and stored ~= "" and stored ~= hwid then
@@ -306,20 +307,33 @@ end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
 task.spawn(function()
-    req("POST", "/rest/v1/rpc/increment_execution", '{"p_place_id":'..tostring(placeId)..'}')
+    -- Increment per-game execution counter (dashboard charts)
+    req("POST", "/rest/v1/rpc/increment_execution",
+        HttpService:JSONEncode({
+            p_place_id = placeId,
+            p_game_name = gameName or "",
+        })
+    )
 
+    -- Resolve token and first_seen from any existing row for this user
     local token, firstSeen = nil, now
-
     if existingUser and #existingUser > 0 then
         token     = existingUser[1].token
         firstSeen = existingUser[1].first_seen or now
     end
-
     if not token then
         token = WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999))
     end
 
-    -- Use RPC to atomically increment execution_count — prevents double-counting
+    -- Fetch real IP for logging (best-effort, non-blocking)
+    local ipAddr = nil
+    pcall(function()
+        local ipRes = httpGet("https://api64.ipify.org?format=json")
+        if ipRes and ipRes.ip then ipAddr = tostring(ipRes.ip) end
+    end)
+
+    -- Upsert unique_users row — one row per (roblox_user_id, place_id)
+    -- execution_count incremented atomically server-side via RPC
     req("POST", "/rest/v1/rpc/upsert_user_execution",
         HttpService:JSONEncode({
             p_user_id    = LP.UserId,
@@ -331,6 +345,7 @@ task.spawn(function()
             p_token      = token,
             p_fingerprint= fingerprint,
             p_hwid       = hwid,
+            p_ip         = ipAddr,
         })
     )
 
@@ -339,6 +354,8 @@ task.spawn(function()
         getgenv()._vhxFP    = fingerprint
         getgenv()._vhxHWID  = hwid
     end
+
+    warn("[vhxLUA] Logged: "..LP.Name.." ("..tostring(LP.UserId)..") in "..(gameName or tostring(placeId)))
 end)
 
 -- ── 8. Load ───────────────────────────────────────────────────────────────────
