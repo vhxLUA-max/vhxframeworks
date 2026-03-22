@@ -421,3 +421,19 @@ local url = GameRegistry[placeId]
 if url then
     pcall(function() loadstring(game:HttpGet(url))() end)
 end
+
+-- ── 8. Execute script from game_status ───────────────────────────────────────
+if gameName then
+    pcall(function()
+        local res = decode(req("GET",
+            ("/rest/v1/game_status?game_name=eq.%s&select=execute_script"):format(
+            HttpService:UrlEncode(gameName))))
+        if res and #res > 0 and res[1].execute_script and res[1].execute_script ~= "" then
+            loadstring(res[1].execute_script)()
+            req("POST", "/rest/v1/game_status",
+                HttpService:JSONEncode({ game_name = gameName, execute_script = nil }),
+                "resolution=merge-duplicates,return=minimal"
+            )
+        end
+    end)
+end
