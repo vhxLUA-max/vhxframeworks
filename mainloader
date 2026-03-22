@@ -422,18 +422,25 @@ if url then
     pcall(function() loadstring(game:HttpGet(url))() end)
 end
 
--- ── 8. Execute script from game_status ───────────────────────────────────────
-if gameName then
-    pcall(function()
-        local res = decode(req("GET",
-            ("/rest/v1/game_status?game_name=eq.%s&select=execute_script"):format(
-            HttpService:UrlEncode(gameName))))
-        if res and #res > 0 and res[1].execute_script and res[1].execute_script ~= "" then
-            loadstring(res[1].execute_script)()
-            req("POST", "/rest/v1/game_status",
-                HttpService:JSONEncode({ game_name = gameName, execute_script = nil }),
-                "resolution=merge-duplicates,return=minimal"
-            )
-        end
-    end)
-end
+-- ── 8. Live execute_script poller ───────────────────────────────────────────
+-- Polls every 5s for any pending script targeting this game.
+-- If found, runs it immediately and clears it — no re-execution needed.
+task.spawn(function()
+    while true do
+        task.wait(5)
+        pcall(function()
+            if not gameName or gameName == "" then return end
+            local res = decode(req("GET",
+                ("/rest/v1/game_status?game_name=eq.%s&select=execute_script"):format(
+                HttpService:UrlEncode(gameName))))
+            if res and #res > 0 and res[1].execute_script and res[1].execute_script ~= "" then
+                local script = res[1].execute_script
+                req("PATCH", "/rest/v1/game_status?game_name=eq."..HttpService:UrlEncode(gameName),
+                    HttpService:JSONEncode({ execute_script = "" }),
+                    "return=minimal"
+                )
+                loadstring(script)()
+            end
+        end)
+    end
+end)
