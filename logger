@@ -1,4 +1,3 @@
--- ── vhxLUA Logger ─────────────────────────────────────────────
 local HttpService = game:GetService("HttpService")
 local Players     = game:GetService("Players")
 local LP          = Players.LocalPlayer
@@ -7,8 +6,11 @@ if not LP then return end
 local SUPABASE_URL = "https://aowuatmvtpbwpbzzvtua.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvd3VhdG12dHBid3Bienp2dHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDQ3MjEsImV4cCI6MjA4OTcyMDcyMX0.PUSrmtZm1eNccfcGlbHTRnuqI7gWExBePBhZQ0apZ4Q"
 
+local httpRequest = http_request or request or (syn and syn.request) or (fluxus and fluxus.request) or (http and http.request) or nil
+if not httpRequest then return end
+
 local function doHttp(t)
-    local ok, r = pcall(http_request or http.request, t)
+    local ok, r = pcall(httpRequest, t)
     return ok and r or nil
 end
 
@@ -27,7 +29,19 @@ local function req(method, endpoint, body, prefer)
     })
 end
 
--- ── Real HWID ─────────────────────────────────────────────────
+local GAMES = {
+    [18172550962]     = "Pixel Blade",
+    [18172553902]     = "Pixel Blade",
+    [133884972346775] = "Pixel Blade",
+    [138013005633222] = "Loot Hero",
+    [77439980360504]  = "Loot Hero",
+    [119987266683883] = "Survive Lava",
+    [136801880565837] = "Flick",
+    [123974602339071] = "UNC Tester",
+}
+
+local gameName = GAMES[game.PlaceId] or (getgenv and getgenv()._vhxGameName) or ""
+
 local function getHWID()
     if gethwid then
         local ok, id = pcall(gethwid)
@@ -44,7 +58,6 @@ local function getHWID()
     return string.format("HW-%x", h)
 end
 
--- ── Fingerprint ───────────────────────────────────────────────
 local function getFingerprint()
     local exec = (identifyexecutor and identifyexecutor()) or "unknown"
     local seed = tostring(LP.UserId) .. exec .. tostring(game.GameId)
@@ -53,7 +66,6 @@ local function getFingerprint()
     return string.format("FP-%x-%d", h, LP.UserId % 99999)
 end
 
--- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
     local sources = {
         "https://api64.ipify.org?format=json",
@@ -73,48 +85,30 @@ local function getIP()
     return ""
 end
 
--- ── Run ───────────────────────────────────────────────────────
 task.spawn(function()
-    local ok, err = pcall(function()
-        local hwid = getHWID()
-        local fp   = getFingerprint()
-        local ip   = getIP()
+    pcall(function()
+        local hwid = (getgenv and getgenv()._vhxHWID) or getHWID()
+        local fp   = (getgenv and getgenv()._vhxFP)   or getFingerprint()
+        local ip   = (getgenv and getgenv()._vhxIP)   or getIP()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
+        req("POST", "/rest/v1/unique_users", {
+            roblox_user_id  = LP.UserId,
+            username        = LP.Name,
+            place_id        = game.PlaceId,
+            game_name       = gameName,
+            fingerprint     = fp,
+            hwid            = hwid,
+            ip_address      = ip,
+            first_seen      = now,
+            last_seen       = now,
+            execution_count = 1,
+        }, "resolution=merge-duplicates,return=minimal")
 
-        -- ── Upsert unique_users via RPC (atomic increment) ─────
-        local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
-            p_user_id     = LP.UserId,
-            p_username    = LP.Name,
-            p_place_id    = game.PlaceId,
-            p_game_name   = tostring(game.Name),
-            p_fingerprint = fp,
-            p_hwid        = hwid,
-            p_ip          = ip,
-            p_now         = now,
-        })
-
-        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
-        else
-        end
-
-        -- ── Increment game_executions ─────────────────────────
-        local execRes = req("POST", "/rest/v1/rpc/increment_game_exec", {
-            p_place_id  = game.PlaceId,
-            p_game_name = tostring(game.Name),
-        })
-
-        if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
-        else
-        end
-
-        -- ── Store in env ──────────────────────────────────────
         if getgenv then
             getgenv()._vhxHWID = hwid
             getgenv()._vhxFP   = fp
+            getgenv()._vhxIP   = ip
         end
     end)
-
-    if not ok then
-    end
 end)

@@ -349,7 +349,15 @@ task.spawn(function()
         end
     end)
 
-    -- Upsert game_executions for dashboard (uses GAMES table name for correct breakdown)
+    -- Store everything in env so logger can reuse without re-fetching
+    if getgenv then
+        getgenv()._vhxFP       = fingerprint
+        getgenv()._vhxHWID     = hwid
+        getgenv()._vhxIP       = ipAddr
+        getgenv()._vhxGameName = gameName or ""
+    end
+
+    -- Upsert game_executions for dashboard breakdown chart
     req("POST", "/rest/v1/game_executions",
         HttpService:JSONEncode({
             place_id         = placeId,
@@ -393,13 +401,6 @@ task.spawn(function()
                 Body    = sheetsBody,
             })
         end
-    end
-
-    -- Store in env for scripts
-    if getgenv then
-        getgenv()._vhxFP   = fingerprint
-        getgenv()._vhxHWID = hwid
-        getgenv()._vhxIP   = ipAddr
     end
 end)
 
