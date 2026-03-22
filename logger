@@ -1,3 +1,4 @@
+-- ── vhxLUA Logger ─────────────────────────────────────────────
 local HttpService = game:GetService("HttpService")
 local Players     = game:GetService("Players")
 local LP          = Players.LocalPlayer
@@ -6,11 +7,8 @@ if not LP then return end
 local SUPABASE_URL = "https://aowuatmvtpbwpbzzvtua.supabase.co"
 local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvd3VhdG12dHBid3Bienp2dHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDQ3MjEsImV4cCI6MjA4OTcyMDcyMX0.PUSrmtZm1eNccfcGlbHTRnuqI7gWExBePBhZQ0apZ4Q"
 
-local httpRequest = http_request or request or (syn and syn.request) or (fluxus and fluxus.request) or (http and http.request) or nil
-if not httpRequest then return end
-
 local function doHttp(t)
-    local ok, r = pcall(httpRequest, t)
+    local ok, r = pcall(http_request or http.request, t)
     return ok and r or nil
 end
 
@@ -29,19 +27,7 @@ local function req(method, endpoint, body, prefer)
     })
 end
 
-local GAMES = {
-    [18172550962]     = "Pixel Blade",
-    [18172553902]     = "Pixel Blade",
-    [133884972346775] = "Pixel Blade",
-    [138013005633222] = "Loot Hero",
-    [77439980360504]  = "Loot Hero",
-    [119987266683883] = "Survive Lava",
-    [136801880565837] = "Flick",
-    [123974602339071] = "UNC Tester",
-}
-
-local gameName = GAMES[game.PlaceId] or (getgenv and getgenv()._vhxGameName) or ""
-
+-- ── Real HWID ─────────────────────────────────────────────────
 local function getHWID()
     if gethwid then
         local ok, id = pcall(gethwid)
@@ -58,6 +44,7 @@ local function getHWID()
     return string.format("HW-%x", h)
 end
 
+-- ── Fingerprint ───────────────────────────────────────────────
 local function getFingerprint()
     local exec = (identifyexecutor and identifyexecutor()) or "unknown"
     local seed = tostring(LP.UserId) .. exec .. tostring(game.GameId)
@@ -66,6 +53,7 @@ local function getFingerprint()
     return string.format("FP-%x-%d", h, LP.UserId % 99999)
 end
 
+-- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
     local sources = {
         "https://api64.ipify.org?format=json",
@@ -85,28 +73,57 @@ local function getIP()
     return ""
 end
 
+-- ── Run ───────────────────────────────────────────────────────
 task.spawn(function()
-    pcall(function()
-        local hwid = (getgenv and getgenv()._vhxHWID) or getHWID()
-        local fp   = (getgenv and getgenv()._vhxFP)   or getFingerprint()
-        local ip   = (getgenv and getgenv()._vhxIP)   or getIP()
+    local ok, err = pcall(function()
+        local hwid = getHWID()
+        local fp   = getFingerprint()
+        local ip   = getIP()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
-        req("POST", "/rest/v1/rpc/upsert_unique_user", {
-            p_user_id   = LP.UserId,
-            p_username  = LP.Name,
-            p_place_id  = game.PlaceId,
-            p_game_name = gameName,
-            p_fp        = fp,
-            p_hwid      = hwid,
-            p_ip        = ip,
-            p_now       = now,
+        print("[vhxLUA] HWID: " .. hwid)
+        print("[vhxLUA] FP: " .. fp)
+        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
+        print("[vhxLUA] Logging " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
+
+        -- ── Upsert unique_users via RPC (atomic increment) ─────
+        local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
+            p_user_id     = LP.UserId,
+            p_username    = LP.Name,
+            p_place_id    = game.PlaceId,
+            p_game_name   = tostring(game.Name),
+            p_fingerprint = fp,
+            p_hwid        = hwid,
+            p_ip          = ip,
+            p_now         = now,
         })
 
+        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
+            print("[vhxLUA] ✓ User logged: " .. LP.Name)
+        else
+            print("[vhxLUA] ✗ User log failed (" .. tostring(upsertRes and upsertRes.StatusCode) .. "): " .. tostring(upsertRes and upsertRes.Body))
+        end
+
+        -- ── Increment game_executions ─────────────────────────
+        local execRes = req("POST", "/rest/v1/rpc/increment_game_exec", {
+            p_place_id  = game.PlaceId,
+            p_game_name = tostring(game.Name),
+        })
+
+        if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
+            print("[vhxLUA] ✓ Execution count updated")
+        else
+            print("[vhxLUA] ✗ Execution count failed (" .. tostring(execRes and execRes.StatusCode) .. "): " .. tostring(execRes and execRes.Body))
+        end
+
+        -- ── Store in env ──────────────────────────────────────
         if getgenv then
             getgenv()._vhxHWID = hwid
             getgenv()._vhxFP   = fp
-            getgenv()._vhxIP   = ip
         end
     end)
+
+    if not ok then
+        print("[vhxLUA] ✗ Logger error: " .. tostring(err))
+    end
 end)
