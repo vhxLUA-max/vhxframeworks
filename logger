@@ -81,9 +81,6 @@ task.spawn(function()
         local ip   = getIP()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
-        print("[vhxLUA] HWID: " .. hwid)
-        print("[vhxLUA] FP: " .. fp)
-        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
         -- ── Upsert unique_users via RPC (atomic increment) ─────
         local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
             p_user_id     = LP.UserId,
@@ -97,9 +94,7 @@ task.spawn(function()
         })
 
         if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
-            print("[vhxLUA] ✓ User logged: " .. LP.Name)
         else
-            print("[vhxLUA] ✗ User log failed (" .. tostring(upsertRes and upsertRes.StatusCode) .. "): " .. tostring(upsertRes and upsertRes.Body))
         end
 
         -- ── Increment game_executions ─────────────────────────
@@ -109,9 +104,7 @@ task.spawn(function()
         })
 
         if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
-            print("[vhxLUA] ✓ Execution count updated")
         else
-            print("[vhxLUA] ✗ Execution count failed (" .. tostring(execRes and execRes.StatusCode) .. "): " .. tostring(execRes and execRes.Body))
         end
 
         -- ── Store in env ──────────────────────────────────────
@@ -122,6 +115,5 @@ task.spawn(function()
     end)
 
     if not ok then
-        print("[vhxLUA] ✗ Logger error: " .. tostring(err))
     end
 end)
