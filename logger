@@ -97,8 +97,6 @@ task.spawn(function()
         }
         local gameName = GAMES[game.PlaceId] or tostring(game.Name)
 
-        print("[vhxLUA] " .. LP.Name .. " | " .. gameName .. " | " .. (geo.ip ~= "" and geo.ip or "unknown ip"))
-
         local r = req("POST", "/rest/v1/rpc/upsert_user_execution", {
             p_user_id      = LP.UserId,
             p_username     = LP.Name,
@@ -117,9 +115,7 @@ task.spawn(function()
         })
 
         if r and (r.StatusCode == 200 or r.StatusCode == 204 or not r.StatusCode) then
-            print("[vhxLUA] ✓ Logged: " .. LP.Name)
         else
-            print("[vhxLUA] ✗ Failed (" .. tostring(r and r.StatusCode) .. "): " .. tostring(r and r.Body))
         end
 
         req("POST", "/rest/v1/rpc/increment_game_exec", {
@@ -133,6 +129,5 @@ task.spawn(function()
         end
     end)
     if not ok then
-        print("[vhxLUA] ✗ Logger error: " .. tostring(err))
     end
 end)
