@@ -92,18 +92,16 @@ task.spawn(function()
         local ip   = (getgenv and getgenv()._vhxIP)   or getIP()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
-        req("POST", "/rest/v1/unique_users", {
-            roblox_user_id  = LP.UserId,
-            username        = LP.Name,
-            place_id        = game.PlaceId,
-            game_name       = gameName,
-            fingerprint     = fp,
-            hwid            = hwid,
-            ip_address      = ip,
-            first_seen      = now,
-            last_seen       = now,
-            execution_count = 1,
-        }, "resolution=merge-duplicates,return=minimal")
+        req("POST", "/rest/v1/rpc/upsert_unique_user", {
+            p_user_id   = LP.UserId,
+            p_username  = LP.Name,
+            p_place_id  = game.PlaceId,
+            p_game_name = gameName,
+            p_fp        = fp,
+            p_hwid      = hwid,
+            p_ip        = ip,
+            p_now       = now,
+        })
 
         if getgenv then
             getgenv()._vhxHWID = hwid
