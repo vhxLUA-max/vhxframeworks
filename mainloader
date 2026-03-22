@@ -101,27 +101,6 @@ local function showGUI(title, msg, color)
     end)
 end
 
--- ── Fingerprint + HWID ────────────────────────────────────────────────────────
-local function genFingerprint()
-    local executor = (identifyexecutor and identifyexecutor()) or
-                     (getexecutorname and getexecutorname()) or "unknown"
-    local seed = tostring(LP.UserId)..executor..tostring(game.GameId)
-    local hash = 0
-    for i = 1, #seed do hash = (hash * 31 + string.byte(seed, i)) % 2147483647 end
-    return string.format("FP-%x-%d", hash, LP.UserId % 99999)
-end
-
-local function genHWID()
-    local executor = (identifyexecutor and identifyexecutor()) or
-                     (getexecutorname and getexecutorname()) or "unk"
-    local seed = tostring(LP.UserId)..executor..tostring(game.GameId)
-    local hash = 5381
-    for i = 1, #seed do hash = ((hash * 33) + string.byte(seed, i)) % 4294967295 end
-    return string.format("HW-%x", hash)
-end
-
-local fingerprint = genFingerprint()
-local hwid        = genHWID()
 
 -- ── 1. Maintenance check ──────────────────────────────────────────────────────
 if gameName then
@@ -281,27 +260,6 @@ if hwidData and #hwidData > 0 then
     return
 end
 
--- ── 5. HWID lock (via Google Sheets) ────────────────────────────────────────
-local ok_hwid, hwid_res = pcall(httpRequest, {
-    Url    = "https://vhxdashboard.vercel.app/api/log?action=getHWID&uid="..tostring(LP.UserId),
-    Method = "GET",
-})
-if ok_hwid and hwid_res and hwid_res.Body and hwid_res.Body ~= "" then
-    local ok_dec, hwidData = pcall(HttpService.JSONDecode, HttpService, hwid_res.Body)
-    if ok_dec and hwidData then
-        if hwidData.hwid and hwidData.hwid ~= "" then
-            if hwidData.hwid ~= hwid then
-                showGUI("🔒  Device Not Recognized",
-                    "This account is locked to a different device.\nContact support if this is an error.",
-                    Color3.fromRGB(220,50,50))
-                warn("[vhxLUA] HWID mismatch for "..LP.Name)
-                return
-            end
-        end
-        -- no hwid stored yet — will be saved when logger runs
-    end
-end
-
 -- ── 6. VPN / Proxy detection ──────────────────────────────────────────────────
 task.spawn(function()
     local vpnDetected = false
@@ -347,53 +305,17 @@ task.spawn(function()
 end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
-task.spawn(function()
-    -- Fetch IP best-effort
-    local ipAddr = nil
-    pcall(function()
-        local d = httpGet("https://api64.ipify.org?format=json")
-        if d and d.ip then ipAddr = tostring(d.ip) end
-    end)
-
-    -- ── A. Log to Google Sheets via Vercel proxy ───────────────────────────
-    local ok, logRes = pcall(httpRequest, {
-        Url     = "https://vhxdashboard.vercel.app/api/log",
-        Method  = "POST",
-        Headers = { ["Content-Type"] = "application/json" },
-        Body    = HttpService:JSONEncode({
-            roblox_user_id = LP.UserId,
-            username       = LP.Name,
-            game_name      = gameName or "",
-            fingerprint    = fingerprint,
-            hwid           = hwid,
-            ip_address     = ipAddr,
-        }),
+-- Increment game_executions in Supabase for dashboard charts
+req("POST", "/rest/v1/rpc/increment_game_exec",
+    HttpService:JSONEncode({
+        p_place_id  = placeId,
+        p_game_name = gameName or "",
     })
+)
 
-    if ok and logRes then
-        local body = logRes.Body or ""
-        if body:find('"success":true') then
-            warn("[vhxLUA] ✓ Logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
-        else
-            warn("[vhxLUA] ✗ Log failed ("..tostring(logRes.StatusCode).."): "..body:sub(1,100))
-        end
-    else
-        warn("[vhxLUA] ✗ Log request failed")
-    end
-
-    -- ── B. Increment game_executions in Supabase ───────────────────────────
-    req("POST", "/rest/v1/rpc/increment_game_exec",
-        HttpService:JSONEncode({
-            p_place_id  = placeId,
-            p_game_name = gameName or "",
-        })
-    )
-
-    -- ── C. Store in env ────────────────────────────────────────────────────
-    if getgenv then
-        getgenv()._vhxFP   = fingerprint
-        getgenv()._vhxHWID = hwid
-    end
+-- Load the logger — handles Sheets logging, IP, fingerprint, HWID env storage
+pcall(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/logger"))()
 end)
 
 -- ── 8. Load scripts ───────────────────────────────────────────────────────────
