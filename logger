@@ -45,32 +45,51 @@ local function getHWID()
 end
 
 -- ── Fingerprint ───────────────────────────────────────────────
-local function getFingerprint()
-    local exec = (identifyexecutor and identifyexecutor()) or "unknown"
+local function getFinger    local exec = (identifyexecutor and identifyexecutor()) or "unknown"
     local seed = tostring(LP.UserId) .. exec .. tostring(game.GameId)
     local h = 0
     for i = 1, #seed do h = (h * 31 + string.byte(seed, i)) % 2147483647 end
     return string.format("FP-%x-%d", h, LP.UserId % 99999)
 end
 
--- ── Real IP ───────────────────────────────────────────────────
-local function getIP()
-    local sources = {
-        "https://api64.ipify.org?format=json",
-        "https://api.ipify.org?format=json",
-        "https://ipinfo.io/json",
-    }
-    for _, url in ipairs(sources) do
-        local ok, r = pcall(doHttp, { Url = url, Method = "GET" })
-        if ok and r and r.Body and r.Body ~= "" then
-            local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
-            if ok2 and d then
-                local ip = d.ip or d.query
-                if ip and ip ~= "" then return tostring(ip) end
+-- ── Real IP + Geo (country, region, city) ────────────────────
+local function getGeo()
+    local ip, country, countryCode, region, city = "", "", "", "", ""
+
+    -- ip-api returns ip + full geo in one call
+    local ok, r = pcall(doHttp, {
+        Url    = "http://ip-api.com/json/?fields=status,query,country,countryCode,regionName,city",
+        Method = "GET",
+    })
+    if ok and r and r.Body and r.Body ~= "" then
+        local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
+        if ok2 and d and d.status == "success" then
+            ip          = tostring(d.query       or "")
+            country     = tostring(d.country     or "")
+            countryCode = tostring(d.countryCode or "")
+            region      = tostring(d.regionName  or "")
+            city        = tostring(d.city        or "")
+        end
+    end
+
+    -- Fallback for IP only if geo failed
+    if ip == "" then
+        for _, url in ipairs({
+            "https://api64.ipify.org?format=json",
+            "https://api.ipify.org?format=json",
+        }) do
+            local ok3, r2 = pcall(doHttp, { Url = url, Method = "GET" })
+            if ok3 and r2 and r2.Body and r2.Body ~= "" then
+                local ok4, d2 = pcall(HttpService.JSONDecode, HttpService, r2.Body)
+                if ok4 and d2 and (d2.ip or d2.query) then
+                    ip = tostring(d2.ip or d2.query)
+                    break
+                end
             end
         end
     end
-    return ""
+
+    return ip, country, countryCode, region, city
 end
 
 -- ── Run ───────────────────────────────────────────────────────
@@ -78,43 +97,30 @@ task.spawn(function()
     local ok, err = pcall(function()
         local hwid = getHWID()
         local fp   = getFingerprint()
-        local ip   = getIP()
+        local ip, country, countryCode, region, city = getGeo()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
-
-        print("[vhxLUA] HWID: " .. hwid)
-        print("[vhxLUA] FP: " .. fp)
-        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
-        print("[vhxLUA] Logging " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
 
         -- ── Upsert unique_users via RPC (atomic increment) ─────
         local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
-            p_user_id     = LP.UserId,
-            p_username    = LP.Name,
-            p_place_id    = game.PlaceId,
-            p_game_name   = tostring(game.Name),
-            p_fingerprint = fp,
-            p_hwid        = hwid,
-            p_ip          = ip,
-            p_now         = now,
+            p_user_id      = LP.UserId,
+            p_username     = LP.Name,
+            p_place_id     = game.PlaceId,
+            p_game_name    = GAMES[game.PlaceId] or "",
+            p_fingerprint  = fp,
+            p_hwid         = hwid,
+            p_ip           = ip,
+            p_now          = now,
+            p_country      = country,
+            p_country_code = countryCode,
+            p_region       = region,
+            p_city         = city,
         })
-
-        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
-            print("[vhxLUA] ✓ User logged: " .. LP.Name)
-        else
-            print("[vhxLUA] ✗ User log failed (" .. tostring(upsertRes and upsertRes.StatusCode) .. "): " .. tostring(upsertRes and upsertRes.Body))
-        end
 
         -- ── Increment game_executions ─────────────────────────
         local execRes = req("POST", "/rest/v1/rpc/increment_game_exec", {
             p_place_id  = game.PlaceId,
-            p_game_name = tostring(game.Name),
+            p_game_name = GAMES[game.PlaceId] or "",
         })
-
-        if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
-            print("[vhxLUA] ✓ Execution count updated")
-        else
-            print("[vhxLUA] ✗ Execution count failed (" .. tostring(execRes and execRes.StatusCode) .. "): " .. tostring(execRes and execRes.Body))
-        end
 
         -- ── Store in env ──────────────────────────────────────
         if getgenv then
@@ -124,6 +130,5 @@ task.spawn(function()
     end)
 
     if not ok then
-        print("[vhxLUA] ✗ Logger error: " .. tostring(err))
     end
 end)
