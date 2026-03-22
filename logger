@@ -1,7 +1,6 @@
 -- ── vhxLUA Logger ─────────────────────────────────────────────
--- Loaded by mainloader after ban/maintenance checks pass.
 -- Sends execution data to Google Sheets via Vercel proxy.
--- Never expose the Sheets URL — proxy handles it server-side.
+-- Loaded by mainloader after all checks pass.
 -- ──────────────────────────────────────────────────────────────
 
 local HttpService = game:GetService("HttpService")
@@ -17,103 +16,95 @@ if not httpRequest then return end
 
 local PROXY = "https://vhxdashboard.vercel.app/api/log"
 
-local GAMES = {
-    [18172550962]     = "Pixel Blade",
-    [18172553902]     = "Pixel Blade",
-    [133884972346775] = "Pixel Blade",
-    [138013005633222] = "Loot Hero",
-    [77439980360504]  = "Loot Hero",
-    [119987266683883] = "Survive Lava",
-    [136801880565837] = "Flick",
-    [123974602339071] = "UNC Tester",
-}
-
-local placeId  = game.PlaceId
-local gameName = GAMES[placeId] or ("Unknown ("..tostring(placeId)..")")
+-- ── Real HWID (executor-provided, not generated) ─────────────
+local function getRealHWID()
+    -- Try executor-native HWID functions first
+    if gethwid then
+        local ok, id = pcall(gethwid)
+        if ok and id and id ~= "" then return tostring(id) end
+    end
+    if getdeviceid then
+        local ok, id = pcall(getdeviceid)
+        if ok and id and id ~= "" then return tostring(id) end
+    end
+    if hookfunction == nil then
+        -- Fallback: stable hash from userId + executor name
+        local exec = (identifyexecutor and identifyexecutor()) or
+                     (getexecutorname and getexecutorname()) or "unknown"
+        local seed = tostring(LP.UserId) .. exec
+        local h = 5381
+        for i = 1, #seed do
+            h = ((h * 33) + string.byte(seed, i)) % 4294967295
+        end
+        return string.format("HW-%x", h)
+    end
+    return "unknown"
+end
 
 -- ── Fingerprint ───────────────────────────────────────────────
-local function genFingerprint()
+local function getFingerprint()
     local exec = (identifyexecutor and identifyexecutor()) or
                  (getexecutorname and getexecutorname()) or "unknown"
-    local seed = tostring(LP.UserId)..exec..tostring(game.GameId)
+    local seed = tostring(LP.UserId) .. exec .. tostring(game.GameId)
     local h = 0
     for i = 1, #seed do h = (h * 31 + string.byte(seed, i)) % 2147483647 end
     return string.format("FP-%x-%d", h, LP.UserId % 99999)
 end
 
--- ── HWID ──────────────────────────────────────────────────────
-local function genHWID()
-    local exec = (identifyexecutor and identifyexecutor()) or
-                 (getexecutorname and getexecutorname()) or "unk"
-    local seed = tostring(LP.UserId)..exec..tostring(game.GameId)
-    local h = 5381
-    for i = 1, #seed do h = ((h * 33) + string.byte(seed, i)) % 4294967295 end
-    return string.format("HW-%x", h)
-end
-
--- ── IP fetch ──────────────────────────────────────────────────
+-- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
     local ok, r = pcall(httpRequest, {
-        Url = "https://api64.ipify.org?format=json", Method = "GET"
+        Url = "https://api64.ipify.org?format=json",
+        Method = "GET",
     })
     if not ok or not r or not r.Body then return "" end
     local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
     return (ok2 and d and d.ip) and tostring(d.ip) or ""
 end
 
--- ── Timestamp m/d/y hh:mm ────────────────────────────────────
-local function timestamp()
-    return os.date("!%m/%d/%Y %H:%M")
-end
-
--- ── POST to Vercel proxy (form-encoded survives 302 redirect) ─
-local function post(data)
-    local params = {}
+-- ── POST form-encoded (survives Apps Script 302 redirect) ─────
+local function send(data)
+    local parts = {}
     for k, v in pairs(data) do
-        params[#params+1] = k.."="..HttpService:UrlEncode(tostring(v))
+        parts[#parts + 1] = k .. "=" .. HttpService:UrlEncode(tostring(v))
     end
-    local body = table.concat(params, "&")
 
     local ok, res = pcall(httpRequest, {
         Url     = PROXY,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
-        Body    = body,
+        Body    = table.concat(parts, "&"),
     })
 
     if ok and res then
-        local sc = res.StatusCode or 0
-        local rb = res.Body or ""
-        if rb:find('"success":true') then
-            warn("[vhxLUA Logger] ✓ Logged: "..LP.Name.." | "..gameName)
+        local body = res.Body or ""
+        if body:find('"success":true') then
+            warn("[vhxLUA] ✓ Logged: " .. LP.Name .. " | " .. tostring(game.Name))
         else
-            warn("[vhxLUA Logger] ✗ Failed ("..tostring(sc).."): "..rb:sub(1,120))
+            warn("[vhxLUA] ✗ Log failed (" .. tostring(res.StatusCode) .. "): " .. body:sub(1, 120))
         end
     else
-        warn("[vhxLUA Logger] ✗ Request error")
+        warn("[vhxLUA] ✗ Log request error")
     end
 end
 
 -- ── Run ───────────────────────────────────────────────────────
 task.spawn(function()
-    local fp   = genFingerprint()
-    local hwid = genHWID()
+    local hwid = getRealHWID()
+    local fp   = getFingerprint()
     local ip   = getIP()
-    local now  = timestamp()
 
-    post({
+    send({
         roblox_user_id = LP.UserId,
         username       = LP.Name,
-        game_name      = gameName,
-        fingerprint    = fp,
+        game_name      = tostring(game.Name),
         hwid           = hwid,
+        fingerprint    = fp,
         ip_address     = ip,
-        timestamp      = now,
     })
 
-    -- Store in env for other scripts
     if getgenv then
-        getgenv()._vhxFP   = fp
         getgenv()._vhxHWID = hwid
+        getgenv()._vhxFP   = fp
     end
 end)
