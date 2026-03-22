@@ -359,7 +359,7 @@ task.spawn(function()
     end)
 
     -- ── B. Post to Google Sheets via Apps Script ───────────────────────────
-    local sheetsUrl  = "https://script.google.com/macros/s/AKfycbxqDrocu6u-VZRmj_kKZYWGQYATm3FQjwg3xluFMoWMVQXSlwJHFnZKwoT6_Se1z0IF/exec"
+    local sheetsUrl  = "https://script.google.com/macros/s/AKfycbyV7uUlREPjyRlr3bv6AnfsaB6ATqmsdI6Lo1i6eq0fcg9RAhMZIRYxCaNJcupW8tsS/exec"
     local sheetsBody = HttpService:JSONEncode({
         roblox_user_id = LP.UserId,
         username       = LP.Name,
