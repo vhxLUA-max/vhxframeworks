@@ -281,26 +281,25 @@ if hwidData and #hwidData > 0 then
     return
 end
 
--- ── 5. HWID lock ─────────────────────────────────────────────────────────────
--- Stored in user_hwids table (lightweight, Supabase only)
-local hwidRow = decode(req("GET",
-    ("/rest/v1/user_hwids?roblox_user_id=eq.%d&select=hwid"):format(LP.UserId)))
-if hwidRow and #hwidRow > 0 then
-    local stored = hwidRow[1].hwid
-    if stored and stored ~= "" and stored ~= hwid then
-        showGUI("🔒  Device Not Recognized",
-            "This account is locked to a different device.\nContact support if this is an error.",
-            Color3.fromRGB(220,50,50))
-        warn("[vhxLUA] HWID mismatch for "..LP.Name)
-        return
+-- ── 5. HWID lock (via Google Sheets) ────────────────────────────────────────
+local ok_hwid, hwid_res = pcall(httpRequest, {
+    Url    = "https://vhxdashboard.vercel.app/api/log?action=getHWID&uid="..tostring(LP.UserId),
+    Method = "GET",
+})
+if ok_hwid and hwid_res and hwid_res.Body and hwid_res.Body ~= "" then
+    local ok_dec, hwidData = pcall(HttpService.JSONDecode, HttpService, hwid_res.Body)
+    if ok_dec and hwidData then
+        if hwidData.hwid and hwidData.hwid ~= "" then
+            if hwidData.hwid ~= hwid then
+                showGUI("🔒  Device Not Recognized",
+                    "This account is locked to a different device.\nContact support if this is an error.",
+                    Color3.fromRGB(220,50,50))
+                warn("[vhxLUA] HWID mismatch for "..LP.Name)
+                return
+            end
+        end
+        -- no hwid stored yet — will be saved when logger runs
     end
-else
-    -- First time seen — register their HWID
-    req("POST", "/rest/v1/user_hwids", {
-        roblox_user_id = LP.UserId,
-        username       = LP.Name,
-        hwid           = hwid,
-    }, "return=minimal")
 end
 
 -- ── 6. VPN / Proxy detection ──────────────────────────────────────────────────
