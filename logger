@@ -66,7 +66,14 @@ local function send(data)
     local target = APPS_SCRIPT
     if r1 and r1.Headers then
         local loc = r1.Headers["Location"] or r1.Headers["location"]
-        if loc and loc ~= "" then target = loc end
+        if loc and loc ~= "" then
+            target = loc
+            print("[vhxLUA] Following redirect...")
+        else
+            print("[vhxLUA] No redirect found, posting to original URL")
+        end
+    else
+        print("[vhxLUA] Step 1 failed — no response from Apps Script")
     end
 
     local r2 = http({
@@ -87,21 +94,32 @@ end
 
 -- ── Run ───────────────────────────────────────────────────────
 task.spawn(function()
-    local hwid = getHWID()
-    local fp   = getFingerprint()
-    local ip   = getIP()
+    local ok, err = pcall(function()
+        local hwid = getHWID()
+        local fp   = getFingerprint()
+        local ip   = getIP()
 
-    send({
-        roblox_user_id = LP.UserId,
-        username       = LP.Name,
-        game_name      = tostring(game.Name),
-        hwid           = hwid,
-        fingerprint    = fp,
-        ip_address     = ip,
-    })
+        print("[vhxLUA] HWID: " .. hwid)
+        print("[vhxLUA] FP: " .. fp)
+        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "failed to fetch"))
+        print("[vhxLUA] Sending log for " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
 
-    if getgenv then
-        getgenv()._vhxHWID = hwid
-        getgenv()._vhxFP   = fp
+        send({
+            roblox_user_id = LP.UserId,
+            username       = LP.Name,
+            game_name      = tostring(game.Name),
+            hwid           = hwid,
+            fingerprint    = fp,
+            ip_address     = ip,
+        })
+
+        if getgenv then
+            getgenv()._vhxHWID = hwid
+            getgenv()._vhxFP   = fp
+        end
+    end)
+
+    if not ok then
+        print("[vhxLUA] ✗ Logger error: " .. tostring(err))
     end
 end)
