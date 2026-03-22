@@ -19,10 +19,10 @@ local function req(method, ep, body, prefer)
     if body then h["Content-Type"] = "application/json" end
     if prefer then h["Prefer"] = prefer end
     local ok, r = pcall(httpRequest, {
-        Url    = SUPABASE_URL..ep,
-        Method = method,
+        Url     = SUPABASE_URL..ep,
+        Method  = method,
         Headers = h,
-        Body   = body and (type(body)=="string" and body or HttpService:JSONEncode(body)) or nil,
+        Body    = body and (type(body)=="string" and body or HttpService:JSONEncode(body)) or nil,
     })
     return ok and r or nil
 end
@@ -73,7 +73,6 @@ local function showGUI(title, msg, color)
         Instance.new("UICorner", frame).CornerRadius = UDim.new(0,12)
         local stroke = Instance.new("UIStroke", frame)
         stroke.Color = color; stroke.Thickness = 2
-        -- accent bar
         local bar = Instance.new("Frame", frame)
         bar.Size = UDim2.new(1,0,0,3); bar.BackgroundColor3 = color
         bar.BorderSizePixel = 0
@@ -136,7 +135,7 @@ if gameName then
         local remainingAtFetch = -1
         if endTs then
             pcall(function()
-                local nowRes   = decode(req("GET", "/rest/v1/rpc/now"))
+                local nowRes    = decode(req("GET", "/rest/v1/rpc/now"))
                 local serverNow = nowRes or os.date("!%Y-%m-%dT%H:%M:%SZ")
                 local function isLeap(yr) return (yr%4==0 and yr%100~=0) or yr%400==0 end
                 local function daysSinceEpoch(yr,mo,dy)
@@ -235,18 +234,13 @@ if gameName then
         if remainingAtFetch >= 0 then
             task.spawn(function()
                 local startTick = tick()
-                local fired = false
                 while sg and sg.Parent do
                     local rem = math.max(0, remainingAtFetch - math.floor(tick()-startTick))
                     if cdLbl and cdLbl.Parent then
                         cdLbl.Text = string.format("Ends in: %02d:%02d:%02d",
                             math.floor(rem/3600), math.floor((rem%3600)/60), rem%60)
                     end
-                    if rem <= 0 and not fired then
-                        fired = true
-                        pcall(function() sg:Destroy() end)
-                        return
-                    end
+                    if rem <= 0 then pcall(function() sg:Destroy() end) return end
                     task.wait(1)
                 end
             end)
@@ -287,13 +281,12 @@ if hwidData and #hwidData > 0 then
     return
 end
 
--- ── 5. HWID lock (fetch existing user row — any game) ─────────────────────────
-local existingRows = decode(req("GET",
-    ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,first_seen&order=first_seen.asc&limit=1"):format(LP.UserId)))
-local existingUser = (existingRows and #existingRows > 0) and existingRows[1] or nil
-
-if existingUser then
-    local stored = existingUser.hwid
+-- ── 5. HWID lock ─────────────────────────────────────────────────────────────
+-- Stored in user_hwids table (lightweight, Supabase only)
+local hwidRow = decode(req("GET",
+    ("/rest/v1/user_hwids?roblox_user_id=eq.%d&select=hwid"):format(LP.UserId)))
+if hwidRow and #hwidRow > 0 then
+    local stored = hwidRow[1].hwid
     if stored and stored ~= "" and stored ~= hwid then
         showGUI("🔒  Device Not Recognized",
             "This account is locked to a different device.\nContact support if this is an error.",
@@ -301,6 +294,13 @@ if existingUser then
         warn("[vhxLUA] HWID mismatch for "..LP.Name)
         return
     end
+else
+    -- First time seen — register their HWID
+    req("POST", "/rest/v1/user_hwids", {
+        roblox_user_id = LP.UserId,
+        username       = LP.Name,
+        hwid           = hwid,
+    }, "return=minimal")
 end
 
 -- ── 6. VPN / Proxy detection ──────────────────────────────────────────────────
@@ -349,8 +349,6 @@ end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
 task.spawn(function()
-    local firstSeen = (existingUser and existingUser.first_seen) or now
-
     -- Fetch IP best-effort
     local ipAddr = nil
     pcall(function()
@@ -358,23 +356,19 @@ task.spawn(function()
         if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- ── B. Post to Vercel proxy → forwards to Google Sheets ──────────────
-    -- Real Sheets URL is stored in Vercel env vars — never exposed in code
-    local logUrl = "https://vhxdashboard.vercel.app/api/log"
-    local logBody = HttpService:JSONEncode({
-        roblox_user_id = LP.UserId,
-        username       = LP.Name,
-        game_name      = gameName or "",
-        fingerprint    = fingerprint,
-        hwid           = hwid,
-        ip_address     = ipAddr,
-    })
-
+    -- ── A. Log to Google Sheets via Vercel proxy ───────────────────────────
     local ok, logRes = pcall(httpRequest, {
-        Url     = logUrl,
+        Url     = "https://vhxdashboard.vercel.app/api/log",
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/json" },
-        Body    = logBody,
+        Body    = HttpService:JSONEncode({
+            roblox_user_id = LP.UserId,
+            username       = LP.Name,
+            game_name      = gameName or "",
+            fingerprint    = fingerprint,
+            hwid           = hwid,
+            ip_address     = ipAddr,
+        }),
     })
 
     if ok and logRes then
@@ -382,32 +376,21 @@ task.spawn(function()
         if body:find('"success":true') then
             warn("[vhxLUA] ✓ Logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
         else
-            warn("[vhxLUA] ✗ Log failed: "..tostring(logRes.StatusCode).." "..body:sub(1, 100))
+            warn("[vhxLUA] ✗ Log failed ("..tostring(logRes.StatusCode).."): "..body:sub(1,100))
         end
     else
         warn("[vhxLUA] ✗ Log request failed")
     end
 
-    -- ── C. Upsert game_executions in Supabase (for dashboard charts) ───────
-    local execRes = req("POST",
-        "/rest/v1/game_executions",
+    -- ── B. Increment game_executions in Supabase ───────────────────────────
+    req("POST", "/rest/v1/rpc/increment_game_exec",
         HttpService:JSONEncode({
-            place_id         = placeId,
-            game_name        = gameName or "",
-            count            = 1,
-            daily_count      = 1,
-            daily_reset_at   = now,
-            last_executed_at = now,
-        }),
-        "resolution=merge-duplicates,return=minimal"
+            p_place_id  = placeId,
+            p_game_name = gameName or "",
+        })
     )
 
-    if execRes and execRes.StatusCode and execRes.StatusCode ~= 200
-    and execRes.StatusCode ~= 201 and execRes.StatusCode ~= 204 then
-        warn("[vhxLUA] ✗ game_executions failed ("..tostring(execRes.StatusCode).."): "..(execRes.Body or ""))
-    end
-
-    -- ── D. Store fingerprint/hwid in env for scripts to use ───────────────
+    -- ── C. Store in env ────────────────────────────────────────────────────
     if getgenv then
         getgenv()._vhxFP   = fingerprint
         getgenv()._vhxHWID = hwid
