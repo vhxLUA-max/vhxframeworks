@@ -86,21 +86,19 @@ task.spawn(function()
         print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
         print("[vhxLUA] Logging " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
 
-        -- ── Upsert unique_users ───────────────────────────────
-        local upsertRes = req("POST", "/rest/v1/unique_users", {
-            roblox_user_id  = LP.UserId,
-            username        = LP.Name,
-            place_id        = game.PlaceId,
-            game_name       = tostring(game.Name),
-            first_seen      = now,
-            last_seen       = now,
-            fingerprint     = fp,
-            hwid            = hwid,
-            ip_address      = ip,
-            execution_count = 1,
-        }, "resolution=merge-duplicates,return=minimal")
+        -- ── Upsert unique_users via RPC (atomic increment) ─────
+        local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
+            p_user_id     = LP.UserId,
+            p_username    = LP.Name,
+            p_place_id    = game.PlaceId,
+            p_game_name   = tostring(game.Name),
+            p_fingerprint = fp,
+            p_hwid        = hwid,
+            p_ip          = ip,
+            p_now         = now,
+        })
 
-        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 201 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
+        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
             print("[vhxLUA] ✓ User logged: " .. LP.Name)
         else
             print("[vhxLUA] ✗ User log failed (" .. tostring(upsertRes and upsertRes.StatusCode) .. "): " .. tostring(upsertRes and upsertRes.Body))
