@@ -358,42 +358,38 @@ task.spawn(function()
         if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- ── A. Upsert unique_users (no token — dashboard handles tokens) ───────
-    local upsertBody = HttpService:JSONEncode({
-        roblox_user_id  = LP.UserId,
-        username        = LP.Name,
-        place_id        = placeId,
-        game_name       = gameName or "",
-        first_seen      = firstSeen,
-        last_seen       = now,
-        fingerprint     = fingerprint,
-        hwid            = hwid,
-        ip_address      = ipAddr,
-        execution_count = 1,
-    })
+    -- ── A. Fetch webhook ID from Supabase config (never hardcoded) ─────────
+    local webhookId = nil
+    pcall(function()
+        local cfg = decode(req("GET", "/rest/v1/config?key=eq.sheets_webhook&select=value"))
+        if cfg and #cfg > 0 then webhookId = cfg[1].value end
+    end)
 
-    local upsertRes = req("POST",
-        "/rest/v1/unique_users",
-        upsertBody,
-        "resolution=merge-duplicates,return=minimal"
-    )
-
-    local upsertOk = upsertRes and (
-        upsertRes.StatusCode == 200 or
-        upsertRes.StatusCode == 201 or
-        upsertRes.StatusCode == 204 or
-        upsertRes.StatusCode == nil
-    )
-
-    if upsertOk then
-        warn("[vhxLUA] ✓ Logged: "..LP.Name.." ("..tostring(LP.UserId)..") | "..(gameName or tostring(placeId)))
-    else
-        local code = upsertRes and tostring(upsertRes.StatusCode) or "no response"
-        local body = upsertRes and (upsertRes.Body or "") or ""
-        warn("[vhxLUA] ✗ upsert failed ("..code.."): "..body)
+    -- ── B. Post to Google Sheets via Apps Script ───────────────────────────
+    if webhookId then
+        local sheetsUrl = "https://script.google.com/macros/s/"..webhookId.."/exec"
+        local sheetsBody = HttpService:JSONEncode({
+            roblox_user_id = LP.UserId,
+            username       = LP.Name,
+            game_name      = gameName or "",
+            fingerprint    = fingerprint,
+            hwid           = hwid,
+            ip_address     = ipAddr,
+        })
+        local ok, sheetsRes = pcall(httpRequest, {
+            Url     = sheetsUrl,
+            Method  = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body    = sheetsBody,
+        })
+        if ok and sheetsRes then
+            warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
+        else
+            warn("[vhxLUA] ✗ Sheets log failed")
+        end
     end
 
-    -- ── B. Upsert game_executions ──────────────────────────────────────────
+    -- ── C. Upsert game_executions in Supabase (for dashboard charts) ───────
     local execRes = req("POST",
         "/rest/v1/game_executions",
         HttpService:JSONEncode({
@@ -412,7 +408,7 @@ task.spawn(function()
         warn("[vhxLUA] ✗ game_executions failed ("..tostring(execRes.StatusCode).."): "..(execRes.Body or ""))
     end
 
-    -- ── C. Store fingerprint/hwid in env for scripts to use ───────────────
+    -- ── D. Store fingerprint/hwid in env for scripts to use ───────────────
     if getgenv then
         getgenv()._vhxFP   = fingerprint
         getgenv()._vhxHWID = hwid
