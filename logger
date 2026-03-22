@@ -45,50 +45,22 @@ local function getIP()
     return (ok and d and d.ip) and tostring(d.ip) or ""
 end
 
--- ── Send to Google Sheets ─────────────────────────────────────
--- Form-encoded POST follows the Apps Script 302 redirect correctly
+-- ── Send via GET with query params (no redirect issues) ───────
 local function send(data)
-    local parts = {}
+    local params = {}
     for k, v in pairs(data) do
-        parts[#parts + 1] = k .. "=" .. HttpService:UrlEncode(tostring(v))
+        params[#params + 1] = k .. "=" .. HttpService:UrlEncode(tostring(v))
     end
-    local body = table.concat(parts, "&")
+    local url = APPS_SCRIPT .. "?" .. table.concat(params, "&")
 
-    -- Step 1: hit Apps Script URL — returns 302
-    local r1 = doHttp({
-        Url     = APPS_SCRIPT,
-        Method  = "POST",
-        Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
-        Body    = body,
-    })
+    local r = doHttp({ Url = url, Method = "GET" })
 
-    -- Step 2: follow redirect
-    local target = APPS_SCRIPT
-    if r1 and r1.Headers then
-        local loc = r1.Headers["Location"] or r1.Headers["location"]
-        if loc and loc ~= "" then
-            target = loc
-            print("[vhxLUA] Following redirect...")
-        else
-            print("[vhxLUA] No redirect found, posting to original URL")
-        end
+    if r and r.Body and r.Body:find('"success":true') then
+        print("[vhxLUA] ✓ Logged: " .. LP.Name .. " | " .. tostring(game.Name))
     else
-        print("[vhxLUA] Step 1 failed — no response from Apps Script")
-    end
-
-    local r2 = doHttp({
-        Url     = target,
-        Method  = "POST",
-        Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
-        Body    = body,
-    })
-
-    if r2 and r2.Body and r2.Body:find('"success":true') then
-        warn("[vhxLUA] ✓ Logged: " .. LP.Name .. " | " .. tostring(game.Name))
-    else
-        local code = r2 and tostring(r2.StatusCode) or "no response"
-        local rb   = r2 and r2.Body or ""
-        warn("[vhxLUA] ✗ Log failed (" .. code .. "): " .. rb:sub(1, 120))
+        local code = r and tostring(r.StatusCode) or "no response"
+        local body = r and r.Body or ""
+        print("[vhxLUA] ✗ Log failed (" .. code .. "): " .. body:sub(1, 120))
     end
 end
 
@@ -101,10 +73,11 @@ task.spawn(function()
 
         print("[vhxLUA] HWID: " .. hwid)
         print("[vhxLUA] FP: " .. fp)
-        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "failed to fetch"))
-        print("[vhxLUA] Sending log for " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
+        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "failed"))
+        print("[vhxLUA] Sending log...")
 
         send({
+            action         = "log",
             roblox_user_id = LP.UserId,
             username       = LP.Name,
             game_name      = tostring(game.Name),
