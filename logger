@@ -39,10 +39,22 @@ end
 
 -- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
-    local r = doHttp({ Url = "https://api64.ipify.org?format=json", Method = "GET" })
-    if not r or not r.Body then return "" end
-    local ok, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
-    return (ok and d and d.ip) and tostring(d.ip) or ""
+    local sources = {
+        "https://api64.ipify.org?format=json",
+        "https://api.ipify.org?format=json",
+        "https://ipinfo.io/json",
+    }
+    for _, url in ipairs(sources) do
+        local ok, r = pcall(doHttp, { Url = url, Method = "GET" })
+        if ok and r and r.Body and r.Body ~= "" then
+            local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
+            if ok2 and d then
+                local ip = d.ip or d.query
+                if ip and ip ~= "" then return tostring(ip) end
+            end
+        end
+    end
+    return "unknown"
 end
 
 -- ── Send via GET with query params (no redirect issues) ───────
