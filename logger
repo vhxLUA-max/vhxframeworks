@@ -1,24 +1,32 @@
 -- ── vhxLUA Logger ─────────────────────────────────────────────
--- Sends execution data to Google Sheets via Vercel proxy.
--- Loaded by mainloader after all checks pass.
--- ──────────────────────────────────────────────────────────────
-
 local HttpService = game:GetService("HttpService")
 local Players     = game:GetService("Players")
 local LP          = Players.LocalPlayer
 if not LP then return end
 
-local httpRequest = http_request or request or
-                   (syn and syn.request) or
-                   (fluxus and fluxus.request) or
-                   (http and http.request) or nil
-if not httpRequest then return end
-
 local PROXY = "https://vhxdashboard.vercel.app/api/log"
 
--- ── Real HWID (executor-provided, not generated) ─────────────
+-- ── Universal HTTP request ────────────────────────────────────
+local function request(t)
+    local fn = http_request or request or
+               (syn and syn.request) or
+               (fluxus and fluxus.request) or
+               (http and http.request) or
+               (getgenv and getgenv().http_request) or nil
+    if fn then
+        local ok, r = pcall(fn, t)
+        return ok and r or nil
+    end
+    -- Fallback: game:HttpGet for GET only
+    if t.Method == "GET" then
+        local ok, r = pcall(function() return game:HttpGet(t.Url) end)
+        if ok and r then return { Body = r, StatusCode = 200 } end
+    end
+    return nil
+end
+
+-- ── Real HWID ─────────────────────────────────────────────────
 local function getRealHWID()
-    -- Try executor-native HWID functions first
     if gethwid then
         local ok, id = pcall(gethwid)
         if ok and id and id ~= "" then return tostring(id) end
@@ -27,18 +35,13 @@ local function getRealHWID()
         local ok, id = pcall(getdeviceid)
         if ok and id and id ~= "" then return tostring(id) end
     end
-    if hookfunction == nil then
-        -- Fallback: stable hash from userId + executor name
-        local exec = (identifyexecutor and identifyexecutor()) or
-                     (getexecutorname and getexecutorname()) or "unknown"
-        local seed = tostring(LP.UserId) .. exec
-        local h = 5381
-        for i = 1, #seed do
-            h = ((h * 33) + string.byte(seed, i)) % 4294967295
-        end
-        return string.format("HW-%x", h)
-    end
-    return "unknown"
+    -- Stable fallback using executor identity
+    local exec = (identifyexecutor and identifyexecutor()) or
+                 (getexecutorname and getexecutorname()) or "unknown"
+    local seed = tostring(LP.UserId) .. exec
+    local h = 5381
+    for i = 1, #seed do h = ((h * 33) + string.byte(seed, i)) % 4294967295 end
+    return string.format("HW-%x", h)
 end
 
 -- ── Fingerprint ───────────────────────────────────────────────
@@ -53,30 +56,27 @@ end
 
 -- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
-    local ok, r = pcall(httpRequest, {
-        Url = "https://api64.ipify.org?format=json",
-        Method = "GET",
-    })
-    if not ok or not r or not r.Body then return "" end
-    local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
-    return (ok2 and d and d.ip) and tostring(d.ip) or ""
+    local r = request({ Url = "https://api64.ipify.org?format=json", Method = "GET" })
+    if not r or not r.Body then return "" end
+    local ok, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
+    return (ok and d and d.ip) and tostring(d.ip) or ""
 end
 
--- ── POST form-encoded (survives Apps Script 302 redirect) ─────
+-- ── Send (form-encoded — survives Apps Script 302 redirect) ───
 local function send(data)
     local parts = {}
     for k, v in pairs(data) do
         parts[#parts + 1] = k .. "=" .. HttpService:UrlEncode(tostring(v))
     end
 
-    local ok, res = pcall(httpRequest, {
+    local res = request({
         Url     = PROXY,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
         Body    = table.concat(parts, "&"),
     })
 
-    if ok and res then
+    if res then
         local body = res.Body or ""
         if body:find('"success":true') then
             warn("[vhxLUA] ✓ Logged: " .. LP.Name .. " | " .. tostring(game.Name))
@@ -84,7 +84,7 @@ local function send(data)
             warn("[vhxLUA] ✗ Log failed (" .. tostring(res.StatusCode) .. "): " .. body:sub(1, 120))
         end
     else
-        warn("[vhxLUA] ✗ Log request error")
+        warn("[vhxLUA] ✗ No response from logger")
     end
 end
 
