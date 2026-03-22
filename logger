@@ -8,21 +8,8 @@ local PROXY = "https://vhxdashboard.vercel.app/api/log"
 
 -- ── Universal HTTP request ────────────────────────────────────
 local function request(t)
-    local fn = http_request or request or
-               (syn and syn.request) or
-               (fluxus and fluxus.request) or
-               (http and http.request) or
-               (getgenv and getgenv().http_request) or nil
-    if fn then
-        local ok, r = pcall(fn, t)
-        return ok and r or nil
-    end
-    -- Fallback: game:HttpGet for GET only
-    if t.Method == "GET" then
-        local ok, r = pcall(function() return game:HttpGet(t.Url) end)
-        if ok and r then return { Body = r, StatusCode = 200 } end
-    end
-    return nil
+    local ok, r = pcall(http.request or http_request, t)
+    return ok and r or nil
 end
 
 -- ── Real HWID ─────────────────────────────────────────────────
