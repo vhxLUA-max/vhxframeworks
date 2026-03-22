@@ -50,9 +50,6 @@ local GAMES = {
     [136801880565837] = "Flick",
     [123974602339071] = "UNC Tester",
 }
-local WORDS = {"FIRE","IRON","VOID","DARK","SOUL","BONE","VEIL","GRIM","ASH","FLUX",
-               "BOLT","CLAW","DUSK","ECHO","FADE","GALE","HEX","JADE","KEEN","MIST",
-               "NOVA","ONYX","PIKE","RUIN","SAGE","TIDE","VILE","WARP","ZEAL","FANG"}
 
 local placeId  = game.PlaceId
 local gameName = GAMES[placeId]
@@ -292,7 +289,7 @@ end
 
 -- ── 5. HWID lock (fetch existing user row — any game) ─────────────────────────
 local existingRows = decode(req("GET",
-    ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,token,first_seen&order=first_seen.asc&limit=1"):format(LP.UserId)))
+    ("/rest/v1/unique_users?roblox_user_id=eq.%d&select=hwid,first_seen&order=first_seen.asc&limit=1"):format(LP.UserId)))
 local existingUser = (existingRows and #existingRows > 0) and existingRows[1] or nil
 
 if existingUser then
@@ -352,8 +349,6 @@ end)
 
 -- ── 7. Logger ─────────────────────────────────────────────────────────────────
 task.spawn(function()
-    local token     = (existingUser and existingUser.token) or
-                      (WORDS[math.random(1,#WORDS)]..tostring(math.random(1000,9999)))
     local firstSeen = (existingUser and existingUser.first_seen) or now
 
     -- Fetch IP best-effort
@@ -363,10 +358,7 @@ task.spawn(function()
         if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- ── A. Upsert unique_users ─────────────────────────────────────────────
-    -- Uses PostgREST native upsert on (roblox_user_id, place_id) unique key.
-    -- execution_count is incremented by the DB trigger (see SQL setup).
-    -- We pass execution_count=1 on INSERT; on conflict the trigger handles increment.
+    -- ── A. Upsert unique_users (no token — dashboard handles tokens) ───────
     local upsertBody = HttpService:JSONEncode({
         roblox_user_id  = LP.UserId,
         username        = LP.Name,
@@ -374,7 +366,6 @@ task.spawn(function()
         game_name       = gameName or "",
         first_seen      = firstSeen,
         last_seen       = now,
-        token           = token,
         fingerprint     = fingerprint,
         hwid            = hwid,
         ip_address      = ipAddr,
@@ -391,19 +382,18 @@ task.spawn(function()
         upsertRes.StatusCode == 200 or
         upsertRes.StatusCode == 201 or
         upsertRes.StatusCode == 204 or
-        upsertRes.StatusCode == nil   -- some executors don't expose status code
+        upsertRes.StatusCode == nil
     )
 
     if upsertOk then
-        warn("[vhxLUA] ✓ Logged: "..LP.Name.." | "..(gameName or tostring(placeId)).." | "..token)
+        warn("[vhxLUA] ✓ Logged: "..LP.Name.." ("..tostring(LP.UserId)..") | "..(gameName or tostring(placeId)))
     else
         local code = upsertRes and tostring(upsertRes.StatusCode) or "no response"
         local body = upsertRes and (upsertRes.Body or "") or ""
-        warn("[vhxLUA] ✗ unique_users upsert failed ("..code.."): "..body)
+        warn("[vhxLUA] ✗ upsert failed ("..code.."): "..body)
     end
 
     -- ── B. Upsert game_executions ──────────────────────────────────────────
-    local today = os.date("!%Y-%m-%d")
     local execRes = req("POST",
         "/rest/v1/game_executions",
         HttpService:JSONEncode({
@@ -422,11 +412,10 @@ task.spawn(function()
         warn("[vhxLUA] ✗ game_executions failed ("..tostring(execRes.StatusCode).."): "..(execRes.Body or ""))
     end
 
-    -- ── C. Store in env ────────────────────────────────────────────────────
+    -- ── C. Store fingerprint/hwid in env for scripts to use ───────────────
     if getgenv then
-        getgenv()._vhxToken = token
-        getgenv()._vhxFP    = fingerprint
-        getgenv()._vhxHWID  = hwid
+        getgenv()._vhxFP   = fingerprint
+        getgenv()._vhxHWID = hwid
     end
 end)
 
