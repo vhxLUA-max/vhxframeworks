@@ -349,14 +349,6 @@ task.spawn(function()
         end
     end)
 
-    -- Store everything in env so logger can reuse without re-fetching
-    if getgenv then
-        getgenv()._vhxFP       = fingerprint
-        getgenv()._vhxHWID     = hwid
-        getgenv()._vhxIP       = ipAddr
-        getgenv()._vhxGameName = gameName or ""
-    end
-
     -- Upsert game_executions for dashboard breakdown chart
     req("POST", "/rest/v1/game_executions",
         HttpService:JSONEncode({
@@ -402,6 +394,11 @@ task.spawn(function()
             })
         end
     end
+end)
+
+-- Load logger — handles unique_users upsert with atomic increment
+pcall(function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/vhxLUA-max/vhxframeworks/refs/heads/main/logger"))()
 end)
 
 -- ── 7. Load scripts ───────────────────────────────────────────────────────────
