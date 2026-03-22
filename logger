@@ -84,13 +84,26 @@ task.spawn(function()
         local geo  = getGeo()
         local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
-        print("[vhxLUA] " .. LP.Name .. " | " .. tostring(game.Name) .. " | " .. (geo.ip ~= "" and geo.ip or "unknown ip"))
+        -- Use known game names from place ID, fall back to game.Name only if unknown
+        local GAMES = {
+            [18172550962]     = "Pixel Blade",
+            [18172553902]     = "Pixel Blade",
+            [133884972346775] = "Pixel Blade",
+            [138013005633222] = "Loot Hero",
+            [77439980360504]  = "Loot Hero",
+            [119987266683883] = "Survive Lava",
+            [136801880565837] = "Flick",
+            [123974602339071] = "UNC Tester",
+        }
+        local gameName = GAMES[game.PlaceId] or tostring(game.Name)
+
+        print("[vhxLUA] " .. LP.Name .. " | " .. gameName .. " | " .. (geo.ip ~= "" and geo.ip or "unknown ip"))
 
         local r = req("POST", "/rest/v1/rpc/upsert_user_execution", {
             p_user_id      = LP.UserId,
             p_username     = LP.Name,
             p_place_id     = game.PlaceId,
-            p_game_name    = tostring(game.Name),
+            p_game_name    = gameName,
             p_fingerprint  = fp,
             p_hwid         = hwid,
             p_ip           = geo.ip,
@@ -111,7 +124,7 @@ task.spawn(function()
 
         req("POST", "/rest/v1/rpc/increment_game_exec", {
             p_place_id  = game.PlaceId,
-            p_game_name = tostring(game.Name),
+            p_game_name = gameName,
         })
 
         if getgenv then
