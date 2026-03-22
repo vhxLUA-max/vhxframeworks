@@ -6,8 +6,8 @@ local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 if not LP then return end
 
-local SUPABASE_URL = "https://wmmslqlvgdpmruhdgbqf.supabase.co"
-local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndtbXNscWx2Z2RwbXJ1aGRnYnFmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4OTIyNDUsImV4cCI6MjA4ODQ2ODI0NX0.Id_TLPX7GnJ9YCzspUUSYaNZSDzMK6vHQ6jGzxsbla4"
+local SUPABASE_URL = "https://aowuatmvtpbwpbzzvtua.supabase.co"
+local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvd3VhdG12dHBid3Bienp2dHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDQ3MjEsImV4cCI6MjA4OTcyMDcyMX0.PUSrmtZm1eNccfcGlbHTRnuqI7gWExBePBhZQ0apZ4Q"
 local BASE = {
     ["apikey"]        = SUPABASE_KEY,
     ["Authorization"] = "Bearer "..SUPABASE_KEY,
