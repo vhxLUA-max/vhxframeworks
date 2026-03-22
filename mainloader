@@ -358,77 +358,58 @@ task.spawn(function()
         if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- ── A. Fetch webhook ID from Supabase config ─────────────────────────
-    local webhookId = nil
-    local cfgRes = req("GET", "/rest/v1/config?key=eq.sheets_webhook&select=value")
-    local cfgData = decode(cfgRes)
-    if cfgData and #cfgData > 0 then
-        webhookId = cfgData[1].value
-    else
-        warn("[vhxLUA] ✗ config fetch failed — StatusCode: "..tostring(cfgRes and cfgRes.StatusCode or "nil").." Body: "..(cfgRes and cfgRes.Body or "nil"))
-    end
-
     -- ── B. Post to Google Sheets via Apps Script ───────────────────────────
-    -- Apps Script returns a 302 redirect on POST — we must follow it manually
-    if webhookId then
-        local sheetsUrl = "https://script.google.com/macros/s/"..webhookId.."/exec"
-        local sheetsBody = HttpService:JSONEncode({
-            roblox_user_id = LP.UserId,
-            username       = LP.Name,
-            game_name      = gameName or "",
-            fingerprint    = fingerprint,
-            hwid           = hwid,
-            ip_address     = ipAddr,
-        })
+    local sheetsUrl  = "https://script.google.com/macros/s/AKfycbxqDrocu6u-VZRmj_kKZYWGQYATm3FQjwg3xluFMoWMVQXSlwJHFnZKwoT6_Se1z0IF/exec"
+    local sheetsBody = HttpService:JSONEncode({
+        roblox_user_id = LP.UserId,
+        username       = LP.Name,
+        game_name      = gameName or "",
+        fingerprint    = fingerprint,
+        hwid           = hwid,
+        ip_address     = ipAddr,
+    })
 
-        -- Step 1: initial POST (gets 302 redirect)
-        local ok1, res1 = pcall(httpRequest, {
-            Url     = sheetsUrl,
-            Method  = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body    = sheetsBody,
-        })
+    local ok1, res1 = pcall(httpRequest, {
+        Url     = sheetsUrl,
+        Method  = "POST",
+        Headers = { ["Content-Type"] = "application/json" },
+        Body    = sheetsBody,
+    })
 
-        if ok1 and res1 then
-            -- Step 2: follow redirect if present
-            local finalUrl = sheetsUrl
-            if res1.Headers then
-                local loc = res1.Headers["Location"] or res1.Headers["location"]
-                if loc then finalUrl = loc end
-            end
+    if ok1 and res1 then
+        local finalUrl = sheetsUrl
+        if res1.Headers then
+            local loc = res1.Headers["Location"] or res1.Headers["location"]
+            if loc then finalUrl = loc end
+        end
 
-            if finalUrl ~= sheetsUrl then
-                -- POST to the redirect URL
-                local ok2, res2 = pcall(httpRequest, {
-                    Url     = finalUrl,
-                    Method  = "POST",
-                    Headers = { ["Content-Type"] = "application/json" },
-                    Body    = sheetsBody,
-                })
-                if ok2 and res2 then
-                    local body = res2.Body or ""
-                    if body:find('"success":true') then
-                        warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
-                    else
-                        warn("[vhxLUA] ✗ Sheets error: "..body:sub(1, 120))
-                    end
-                else
-                    warn("[vhxLUA] ✗ Sheets redirect POST failed")
-                end
-            else
-                -- No redirect — direct response
-                local body = res1.Body or ""
+        if finalUrl ~= sheetsUrl then
+            local ok2, res2 = pcall(httpRequest, {
+                Url     = finalUrl,
+                Method  = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body    = sheetsBody,
+            })
+            if ok2 and res2 then
+                local body = res2.Body or ""
                 if body:find('"success":true') then
                     warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
                 else
-                    warn("[vhxLUA] ✗ Sheets response: "..tostring(res1.StatusCode).." "..body:sub(1,120))
+                    warn("[vhxLUA] ✗ Sheets error: "..body:sub(1, 120))
                 end
+            else
+                warn("[vhxLUA] ✗ Sheets redirect POST failed")
             end
         else
-            warn("[vhxLUA] ✗ Sheets initial POST failed")
+            local body = res1.Body or ""
+            if body:find('"success":true') then
+                warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
+            else
+                warn("[vhxLUA] ✗ Sheets response: "..tostring(res1.StatusCode).." "..body:sub(1,120))
+            end
         end
     else
-        warn("[vhxLUA] ✗ No webhook ID found in config table")
+        warn("[vhxLUA] ✗ Sheets POST failed")
     end
 
     -- ── C. Upsert game_executions in Supabase (for dashboard charts) ───────
