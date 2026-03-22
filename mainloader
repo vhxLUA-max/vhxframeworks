@@ -144,8 +144,7 @@ if gameName then
         local remainingAtFetch = -1
         if endTs then
             pcall(function()
-                local nowRes    = decode(req("GET", "/rest/v1/rpc/now"))
-                local serverNow = nowRes or os.date("!%Y-%m-%dT%H:%M:%SZ")
+                -- Parse ISO timestamp to epoch seconds (no server RPC needed)
                 local function isLeap(yr) return (yr%4==0 and yr%100~=0) or yr%400==0 end
                 local function daysSinceEpoch(yr,mo,dy)
                     local days = 0
@@ -161,8 +160,10 @@ if gameName then
                     return daysSinceEpoch(tonumber(y),tonumber(mo),tonumber(d))*86400
                            + tonumber(hh)*3600 + tonumber(mm)*60 + tonumber(ss)
                 end
-                local endSecs = parseISO(endTs)
-                local nowSecs = parseISO(tostring(serverNow):sub(1,19))
+                -- Use local UTC time — accurate enough for countdown
+                local nowStr = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                local endSecs = parseISO(endTs:sub(1,19))
+                local nowSecs = parseISO(nowStr:sub(1,19))
                 if endSecs and nowSecs then
                     remainingAtFetch = math.max(0, endSecs - nowSecs)
                 end
@@ -204,7 +205,7 @@ if gameName then
         cdLbl.BackgroundTransparency=1; cdLbl.Font=Enum.Font.GothamBold
         cdLbl.TextSize=18; cdLbl.TextColor3=Color3.fromRGB(255,200,50)
         cdLbl.TextXAlignment=Enum.TextXAlignment.Left
-        cdLbl.Text=endTs and "Ends in: --:--:--" or "No timer set"
+        cdLbl.Text=endTs and "Ends in: 00:00:00" or "No timer set"
 
         local closeBtn=Instance.new("TextButton",frame)
         closeBtn.Size=UDim2.new(0,28,0,28); closeBtn.Position=UDim2.new(1,-36,0,4)
