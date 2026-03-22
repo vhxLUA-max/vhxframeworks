@@ -349,17 +349,12 @@ task.spawn(function()
         end
     end)
 
-    -- Upsert game_executions for dashboard breakdown chart
-    req("POST", "/rest/v1/game_executions",
+    -- Increment game_executions via RPC (atomic, handles daily reset)
+    req("POST", "/rest/v1/rpc/increment_game_exec",
         HttpService:JSONEncode({
-            place_id         = placeId,
-            game_name        = gameName or "",
-            count            = 1,
-            daily_count      = 1,
-            daily_reset_at   = now,
-            last_executed_at = now,
-        }),
-        "resolution=merge-duplicates,return=minimal"
+            p_place_id  = placeId,
+            p_game_name = gameName or "",
+        })
     )
 
     -- Post to Google Sheets
