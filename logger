@@ -84,14 +84,12 @@ task.spawn(function()
         print("[vhxLUA] HWID: " .. hwid)
         print("[vhxLUA] FP: " .. fp)
         print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
-        print("[vhxLUA] Logging " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
-
         -- ── Upsert unique_users via RPC (atomic increment) ─────
         local upsertRes = req("POST", "/rest/v1/rpc/upsert_user_execution", {
             p_user_id     = LP.UserId,
             p_username    = LP.Name,
             p_place_id    = game.PlaceId,
-            p_game_name   = tostring(game.Name),
+            p_game_name   = gameName,
             p_fingerprint = fp,
             p_hwid        = hwid,
             p_ip          = ip,
@@ -107,7 +105,7 @@ task.spawn(function()
         -- ── Increment game_executions ─────────────────────────
         local execRes = req("POST", "/rest/v1/rpc/increment_game_exec", {
             p_place_id  = game.PlaceId,
-            p_game_name = tostring(game.Name),
+            p_game_name = gameName,
         })
 
         if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
