@@ -4,11 +4,27 @@ local Players     = game:GetService("Players")
 local LP          = Players.LocalPlayer
 if not LP then return end
 
-local APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbyV7uUlREPjyRlr3bv6AnfsaB6ATqmsdI6Lo1i6eq0fcg9RAhMZIRYxCaNJcupW8tsS/exec"
+local SUPABASE_URL = "https://aowuatmvtpbwpbzzvtua.supabase.co"
+local SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFvd3VhdG12dHBid3Bienp2dHVhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQxNDQ3MjEsImV4cCI6MjA4OTcyMDcyMX0.PUSrmtZm1eNccfcGlbHTRnuqI7gWExBePBhZQ0apZ4Q"
 
 local function doHttp(t)
     local ok, r = pcall(http_request or http.request, t)
     return ok and r or nil
+end
+
+local function req(method, endpoint, body, prefer)
+    local headers = {
+        ["apikey"]        = SUPABASE_KEY,
+        ["Authorization"] = "Bearer " .. SUPABASE_KEY,
+        ["Content-Type"]  = "application/json",
+    }
+    if prefer then headers["Prefer"] = prefer end
+    return doHttp({
+        Url     = SUPABASE_URL .. endpoint,
+        Method  = method,
+        Headers = headers,
+        Body    = body and HttpService:JSONEncode(body) or nil,
+    })
 end
 
 -- ── Real HWID ─────────────────────────────────────────────────
@@ -54,26 +70,7 @@ local function getIP()
             end
         end
     end
-    return "unknown"
-end
-
--- ── Send via GET with query params (no redirect issues) ───────
-local function send(data)
-    local params = {}
-    for k, v in pairs(data) do
-        params[#params + 1] = k .. "=" .. HttpService:UrlEncode(tostring(v))
-    end
-    local url = APPS_SCRIPT .. "?" .. table.concat(params, "&")
-
-    local r = doHttp({ Url = url, Method = "GET" })
-
-    if r and r.Body and r.Body:find('"success":true') then
-        print("[vhxLUA] ✓ Logged: " .. LP.Name .. " | " .. tostring(game.Name))
-    else
-        local code = r and tostring(r.StatusCode) or "no response"
-        local body = r and r.Body or ""
-        print("[vhxLUA] ✗ Log failed (" .. code .. "): " .. body:sub(1, 120))
-    end
+    return ""
 end
 
 -- ── Run ───────────────────────────────────────────────────────
@@ -82,22 +79,46 @@ task.spawn(function()
         local hwid = getHWID()
         local fp   = getFingerprint()
         local ip   = getIP()
+        local now  = os.date("!%Y-%m-%dT%H:%M:%SZ")
 
         print("[vhxLUA] HWID: " .. hwid)
         print("[vhxLUA] FP: " .. fp)
-        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "failed"))
-        print("[vhxLUA] Sending log...")
+        print("[vhxLUA] IP: " .. (ip ~= "" and ip or "unknown"))
+        print("[vhxLUA] Logging " .. LP.Name .. " in " .. tostring(game.Name) .. "...")
 
-        send({
-            action         = "log",
-            roblox_user_id = LP.UserId,
-            username       = LP.Name,
-            game_name      = tostring(game.Name),
-            hwid           = hwid,
-            fingerprint    = fp,
-            ip_address     = ip,
+        -- ── Upsert unique_users ───────────────────────────────
+        local upsertRes = req("POST", "/rest/v1/unique_users", {
+            roblox_user_id  = LP.UserId,
+            username        = LP.Name,
+            place_id        = game.PlaceId,
+            game_name       = tostring(game.Name),
+            first_seen      = now,
+            last_seen       = now,
+            fingerprint     = fp,
+            hwid            = hwid,
+            ip_address      = ip,
+            execution_count = 1,
+        }, "resolution=merge-duplicates,return=minimal")
+
+        if upsertRes and (upsertRes.StatusCode == 200 or upsertRes.StatusCode == 201 or upsertRes.StatusCode == 204 or not upsertRes.StatusCode) then
+            print("[vhxLUA] ✓ User logged: " .. LP.Name)
+        else
+            print("[vhxLUA] ✗ User log failed (" .. tostring(upsertRes and upsertRes.StatusCode) .. "): " .. tostring(upsertRes and upsertRes.Body))
+        end
+
+        -- ── Increment game_executions ─────────────────────────
+        local execRes = req("POST", "/rest/v1/rpc/increment_game_exec", {
+            p_place_id  = game.PlaceId,
+            p_game_name = tostring(game.Name),
         })
 
+        if execRes and (execRes.StatusCode == 200 or execRes.StatusCode == 204 or not execRes.StatusCode) then
+            print("[vhxLUA] ✓ Execution count updated")
+        else
+            print("[vhxLUA] ✗ Execution count failed (" .. tostring(execRes and execRes.StatusCode) .. "): " .. tostring(execRes and execRes.Body))
+        end
+
+        -- ── Store in env ──────────────────────────────────────
         if getgenv then
             getgenv()._vhxHWID = hwid
             getgenv()._vhxFP   = fp
