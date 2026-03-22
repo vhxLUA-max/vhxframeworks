@@ -358,9 +358,10 @@ task.spawn(function()
         if d and d.ip then ipAddr = tostring(d.ip) end
     end)
 
-    -- ── B. Post to Google Sheets via Apps Script ───────────────────────────
-    local sheetsUrl  = "https://script.google.com/macros/s/AKfycbyV7uUlREPjyRlr3bv6AnfsaB6ATqmsdI6Lo1i6eq0fcg9RAhMZIRYxCaNJcupW8tsS/exec"
-    local sheetsBody = HttpService:JSONEncode({
+    -- ── B. Post to Vercel proxy → forwards to Google Sheets ──────────────
+    -- Real Sheets URL is stored in Vercel env vars — never exposed in code
+    local logUrl = "https://vhxdashboard.vercel.app/api/log"
+    local logBody = HttpService:JSONEncode({
         roblox_user_id = LP.UserId,
         username       = LP.Name,
         game_name      = gameName or "",
@@ -369,47 +370,22 @@ task.spawn(function()
         ip_address     = ipAddr,
     })
 
-    local ok1, res1 = pcall(httpRequest, {
-        Url     = sheetsUrl,
+    local ok, logRes = pcall(httpRequest, {
+        Url     = logUrl,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/json" },
-        Body    = sheetsBody,
+        Body    = logBody,
     })
 
-    if ok1 and res1 then
-        local finalUrl = sheetsUrl
-        if res1.Headers then
-            local loc = res1.Headers["Location"] or res1.Headers["location"]
-            if loc then finalUrl = loc end
-        end
-
-        if finalUrl ~= sheetsUrl then
-            local ok2, res2 = pcall(httpRequest, {
-                Url     = finalUrl,
-                Method  = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body    = sheetsBody,
-            })
-            if ok2 and res2 then
-                local body = res2.Body or ""
-                if body:find('"success":true') then
-                    warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
-                else
-                    warn("[vhxLUA] ✗ Sheets error: "..body:sub(1, 120))
-                end
-            else
-                warn("[vhxLUA] ✗ Sheets redirect POST failed")
-            end
+    if ok and logRes then
+        local body = logRes.Body or ""
+        if body:find('"success":true') then
+            warn("[vhxLUA] ✓ Logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
         else
-            local body = res1.Body or ""
-            if body:find('"success":true') then
-                warn("[vhxLUA] ✓ Sheets logged: "..LP.Name.." | "..(gameName or tostring(placeId)))
-            else
-                warn("[vhxLUA] ✗ Sheets response: "..tostring(res1.StatusCode).." "..body:sub(1,120))
-            end
+            warn("[vhxLUA] ✗ Log failed: "..tostring(logRes.StatusCode).." "..body:sub(1, 100))
         end
     else
-        warn("[vhxLUA] ✗ Sheets POST failed")
+        warn("[vhxLUA] ✗ Log request failed")
     end
 
     -- ── C. Upsert game_executions in Supabase (for dashboard charts) ───────
