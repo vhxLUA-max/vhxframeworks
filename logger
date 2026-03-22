@@ -6,8 +6,8 @@ if not LP then return end
 
 local APPS_SCRIPT = "https://script.google.com/macros/s/AKfycbyV7uUlREPjyRlr3bv6AnfsaB6ATqmsdI6Lo1i6eq0fcg9RAhMZIRYxCaNJcupW8tsS/exec"
 
-local function http(t)
-    local ok, r = pcall(http.request or http_request, t)
+local function doHttp(t)
+    local ok, r = pcall(http_request or http.request, t)
     return ok and r or nil
 end
 
@@ -39,7 +39,7 @@ end
 
 -- ── Real IP ───────────────────────────────────────────────────
 local function getIP()
-    local r = http({ Url = "https://api64.ipify.org?format=json", Method = "GET" })
+    local r = doHttp({ Url = "https://api64.ipify.org?format=json", Method = "GET" })
     if not r or not r.Body then return "" end
     local ok, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
     return (ok and d and d.ip) and tostring(d.ip) or ""
@@ -55,7 +55,7 @@ local function send(data)
     local body = table.concat(parts, "&")
 
     -- Step 1: hit Apps Script URL — returns 302
-    local r1 = http({
+    local r1 = doHttp({
         Url     = APPS_SCRIPT,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
@@ -76,7 +76,7 @@ local function send(data)
         print("[vhxLUA] Step 1 failed — no response from Apps Script")
     end
 
-    local r2 = http({
+    local r2 = doHttp({
         Url     = target,
         Method  = "POST",
         Headers = { ["Content-Type"] = "application/x-www-form-urlencoded" },
