@@ -353,7 +353,7 @@ task.spawn(function()
             provider       = vpnProvider,
             country        = vpnCountry,
             flagged        = true,
-        }, "return=minimal")
+        }, "resolution=merge-duplicates,return=minimal")
     end
 end)
 
