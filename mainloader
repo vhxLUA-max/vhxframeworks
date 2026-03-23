@@ -314,7 +314,44 @@ if hwidData and #hwidData > 0 then
     return
 end
 
--- ── 5. VPN detection ─────────────────────────────────────────────────────────
+-- ── 5. Account age gate (blocks accounts newer than 7 days) ──────────────────
+local tooNew = false
+pcall(function()
+    local ok, r = pcall(httpRequest, {
+        Url    = "https://users.roblox.com/v1/users/"..tostring(LP.UserId),
+        Method = "GET",
+    })
+    if ok and r and r.Body then
+        local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
+        if ok2 and d and d.created then
+            local y,mo,dy = d.created:match("(%d+)-(%d+)-(%d+)")
+            if y then
+                local approxCreated = os.time({
+                    year=tonumber(y), month=tonumber(mo), day=tonumber(dy),
+                    hour=0, min=0, sec=0
+                })
+                local ageDays = math.floor((os.time() - approxCreated) / 86400)
+                if ageDays < 7 then
+                    showGUI("⚠️  Account Too New",
+                        "Your Roblox account must be at least 7 days old to use vhxLUA.\nCome back in "..(7 - ageDays).." day(s).",
+                        Color3.fromRGB(220,140,0))
+                    tooNew = true
+                end
+            end
+        end
+    end
+end)
+if tooNew then return end
+
+-- ── 6. HWID cluster ban (alt account detection) ───────────────────────────────
+local clusterCheck = decode(req("POST", "/rest/v1/rpc/check_hwid_cluster",
+    HttpService:JSONEncode({ p_hwid = hwid, p_user_id = LP.UserId })))
+if clusterCheck and type(clusterCheck) == "string" and #clusterCheck > 2 then
+    showGUI("🚫  Banned from vhxLUA", clusterCheck, Color3.fromRGB(220,50,50))
+    return
+end
+
+ ─────────────────────────────────────────────────────────
 task.spawn(function()
     local vpnDetected = false
     local vpnProvider = ""
