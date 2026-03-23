@@ -343,11 +343,26 @@ pcall(function()
 end)
 if tooNew then return end
 
--- ── 6. HWID cluster ban (alt account detection) ───────────────────────────────
-local clusterCheck = decode(req("POST", "/rest/v1/rpc/check_hwid_cluster",
-    HttpService:JSONEncode({ p_hwid = hwid, p_user_id = LP.UserId })))
-if clusterCheck and type(clusterCheck) == "string" and #clusterCheck > 2 then
-    showGUI("🚫  Banned from vhxLUA", clusterCheck, Color3.fromRGB(220,50,50))
+-- ── 6. Cross-account ban (IP + HWID alt detection) ──────────────────────────
+-- Fetch IP first so we can pass it to the cross-account check
+local earlyIP = ""
+pcall(function()
+    local ok, r = pcall(httpRequest, { Url = "https://api64.ipify.org?format=json", Method = "GET" })
+    if ok and r and r.Body then
+        local ok2, d = pcall(HttpService.JSONDecode, HttpService, r.Body)
+        if ok2 and d and d.ip then earlyIP = tostring(d.ip) end
+    end
+end)
+
+local crossCheck = decode(req("POST", "/rest/v1/rpc/check_cross_account_ban",
+    HttpService:JSONEncode({
+        p_hwid    = hwid,
+        p_ip      = earlyIP,
+        p_user_id = LP.UserId,
+    })
+))
+if crossCheck and type(crossCheck) == "string" and #crossCheck > 2 then
+    showGUI("🚫  Banned from vhxLUA", crossCheck, Color3.fromRGB(220,50,50))
     return
 end
 
