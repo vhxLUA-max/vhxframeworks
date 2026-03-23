@@ -176,8 +176,8 @@ if gameName then
         sg.DisplayOrder=9999; sg.IgnoreGuiInset=true; sg.Parent=CoreGui
 
         local frame = Instance.new("Frame")
-        frame.Size=UDim2.new(0,440,0,148)
-        frame.Position=UDim2.new(0.5,-220,0.5,-74)
+        frame.Size=UDim2.new(0,440,0,182)
+        frame.Position=UDim2.new(0.5,-220,0.5,-91)
         frame.BackgroundColor3=Color3.fromRGB(10,10,15)
         frame.BorderSizePixel=0; frame.Active=true; frame.Parent=sg
         Instance.new("UICorner",frame).CornerRadius=UDim.new(0,12)
@@ -215,6 +215,31 @@ if gameName then
         Instance.new("UICorner",closeBtn).CornerRadius=UDim.new(0,6)
         closeBtn.MouseButton1Click:Connect(function() sg:Destroy() end)
         closeBtn.TouchTap:Connect(function() sg:Destroy() end)
+
+        -- Copy URL button
+        local copyBtn = Instance.new("TextButton", frame)
+        copyBtn.Size = UDim2.new(1, -24, 0, 26)
+        copyBtn.Position = UDim2.new(0, 12, 1, -34)
+        copyBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        copyBtn.Text = "📋 Copy Dashboard URL"
+        copyBtn.Font = Enum.Font.Gotham
+        copyBtn.TextSize = 11
+        copyBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+        copyBtn.BorderSizePixel = 0
+        Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 6)
+        local copyStroke = Instance.new("UIStroke", copyBtn)
+        copyStroke.Color = Color3.fromRGB(60, 60, 80); copyStroke.Thickness = 1
+        copyBtn.MouseButton1Click:Connect(function()
+            setclipboard("https://vhxdashboard.vercel.app/")
+            copyBtn.Text = "✓ Copied!"
+            copyBtn.TextColor3 = Color3.fromRGB(52, 211, 153)
+            task.delay(2, function()
+                if copyBtn and copyBtn.Parent then
+                    copyBtn.Text = "📋 Copy Dashboard URL"
+                    copyBtn.TextColor3 = Color3.fromRGB(180, 180, 180)
+                end
+            end)
+        end)
 
         local UIS = game:GetService("UserInputService")
         local dragging,dragStart,frameStart=false,nil,nil
